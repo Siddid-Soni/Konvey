@@ -8,6 +8,16 @@ Agent pipeline to generate explainer videos from a prompt (manimgl / 3b1b style)
 
 Each agent has `zero-shot.md`, `few-shot.md`, `cot.md`. Start with few-shot, use CoT on failure, zero-shot as baseline.
 
+## Per-video prompt sets (each set = 3 prompts for the SAME video)
+
+```text
+prompts/sets/set-01-mlp-facts/{agent1,agent2,agent3}.md         # Jordan puzzle + mlp.py (ML mechanism)
+prompts/sets/set-02-clt-galton-board/{agent1,agent2,agent3}.md  # Galton board + galton_board.py (probability)
+prompts/sets/set-03-shadows-cube/{agent1,agent2,agent3}.md      # Alice-vs-Bob cube + shadows.py (geometry)
+```
+
+Pick the set closest to your target video, then run its agent1->agent2->agent3 in order.
+
 ## Layout
 
 ```text
