@@ -41,6 +41,12 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--dry-run-example", default=None,
                    help="Offline: validate examples/<example>/ without any LLM call")
     p.add_argument("--list-sets", action="store_true", help="Show prompt sets and exit")
+    p.add_argument("--no-layout-check", action="store_true",
+                   help="Skip executing scenes to measure overlaps/off-frame (on by default; needs manimgl)")
+    p.add_argument("--layout-repairs", type=int, default=2,
+                   help="Max Agent 3 repair rounds per scene when the layout check fails (default: 2)")
+    p.add_argument("--layout-repair-warnings", action="store_true",
+                   help="Also repair on layout warnings (shape overlap, tiny text, clutter)")
     return p.parse_args(argv)
 
 
@@ -51,8 +57,11 @@ def main(argv=None) -> int:
             print(f"{name}: {PROMPT_SET_GUIDE.get(name, 'generic style-first prompts')}")
         return 0
     if args.dry_run_example:
-        result = run_dry_run(args.dry_run_example, args.out_dir)
+        result = run_dry_run(args.dry_run_example, args.out_dir, layout_check=not args.no_layout_check)
         print(f"dry-run OK: topic={result.topic!r} scenes={[s.scene_id for s in result.scenes]} -> {result.out_dir}")
+        for scene in result.scenes:
+            for it in scene.layout_issues:
+                print(f"  {scene.scene_id} {it['severity'].upper()} [{it['kind']}] line {it['line']}: {it['detail'][:160]}")
         return 0
     if not args.prompt.strip():
         print("error: --prompt is required (or use --dry-run-example)", file=sys.stderr)
@@ -70,6 +79,9 @@ def main(argv=None) -> int:
         duration_sec=args.duration,
         out_dir=args.out_dir,
         verbose=not args.quiet,
+        layout_check=not args.no_layout_check,
+        layout_max_repairs=args.layout_repairs,
+        layout_repair_warnings=args.layout_repair_warnings,
     )
     if args.workflow:
         print("Building Agno workflow: Knowledge -> Planning -> Parallel(S1,S2,S3) -> Assemble ...", flush=True)

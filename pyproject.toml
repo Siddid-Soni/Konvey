@@ -11,6 +11,14 @@ dependencies = [
     "python-dotenv>=1.2.3",
 ]
 
+[project.optional-dependencies]
+# Executed layout check (konvey.layout_probe). Linux servers also need
+# libpango1.0-dev, a LaTeX install with dvisvgm, and xvfb (xvfb-run).
+layout = [
+    "manimgl>=1.7.2",
+    "audioop-lts; python_version >= '3.13'",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",

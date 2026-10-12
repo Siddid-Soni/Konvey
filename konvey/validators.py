@@ -228,6 +228,35 @@ def validate_scene_plan(
     return plan
 
 
+_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def check_plan_naming(plan: ScenePlan) -> list[str]:
+    """Soft check: do spatial predicates name the same variables layout[] moves?
+
+    If a predicate says ``sum_labels below many_balls`` but layout only has
+    ``sum_labels.next_to(buckets, DOWN)``, Agent 3 cannot tell which object the
+    predicate meant and improvises positions -- a common source of overlaps.
+    Returned as warnings (not raised) because the shipped examples predate it.
+    """
+    warnings: list[str] = []
+    for scene in plan.scenes:
+        for b, beat in enumerate(scene.beats):
+            idents = set()
+            for op in beat.layout:
+                idents |= set(_IDENT_RE.findall(op.args))
+            for pred in beat.spatial_predicates:
+                if len(pred) != 3:
+                    continue
+                missing = [x for x in (pred[0], pred[2]) if x not in idents]
+                if missing:
+                    warnings.append(
+                        f"{scene.id} beat {b}: predicate {pred} names {missing} but layout[] never "
+                        f"uses those identifiers (layout: {[op.args for op in beat.layout]})"
+                    )
+    return warnings
+
+
 # ---------------------------------------------------------------------------
 # Agent 3
 # ---------------------------------------------------------------------------

@@ -39,8 +39,10 @@ from .schemas import (
     Scene,
     ScenePlan,
 )
+from .layout_probe import LayoutReport, probe_scene
 from .validators import (
     ValidationError,
+    check_plan_naming,
     coerce_content,
     validate_knowledge_pack,
     validate_manim_code,
@@ -63,6 +65,12 @@ class PipelineConfig:
     cot_retry: bool = True
     # Print flushed progress lines (which agent is running, what finished).
     verbose: bool = True
+    # Execute each generated scene headlessly (manimgl, no video) and measure
+    # overlaps / off-frame objects per beat; send failures back to Agent 3.
+    layout_check: bool = True
+    layout_max_repairs: int = 2
+    # Also repair on warnings (shape overlap, tiny text, clutter), not only errors.
+    layout_repair_warnings: bool = False
 
 
 def _agent_text(response: Any) -> Any:
@@ -93,11 +101,79 @@ def run_planning(
     return validate_scene_plan(plan, duration_sec, duration_tolerance)
 
 
-def run_coding(scene: Scene, coding_agent: Any) -> CodedScene:
-    resp = coding_agent.run(f"Input SCENE_SPEC: {scene.model_dump_json()}\nRules: implement verbatim; code only.")
+CODE_RULES = "Rules: implement verbatim; code only."
+
+
+def _report_score(report: Optional[LayoutReport]) -> tuple[int, int]:
+    if report is None or report.skipped:
+        return (0, 0)
+    return (len(report.errors), len(report.warnings))
+
+
+def _needs_repair(report: LayoutReport, include_warnings: bool) -> bool:
+    if report.skipped:
+        return False
+    return bool(report.errors or (include_warnings and report.warnings))
+
+
+def run_coding(
+    scene: Scene,
+    coding_agent: Any,
+    *,
+    layout_check: bool = False,
+    max_repairs: int = 2,
+    repair_warnings: bool = False,
+    log: Any = None,
+) -> CodedScene:
+    """Agent 3 for one scene, plus an optional measure-and-repair loop.
+
+    Each candidate is executed by :func:`probe_scene`; if it overlaps or
+    leaves the frame, the coder gets the spec, its own code and the measured
+    report, and is asked to fix positions only. The best candidate (fewest
+    errors, then warnings) is kept, so a repair can never make things worse.
+    """
+    spec_json = scene.model_dump_json()
+    resp = coding_agent.run(f"Input SCENE_SPEC: {spec_json}\n{CODE_RULES}")
     content = _agent_text(resp)
-    code = content if isinstance(content, str) else str(content)
-    return CodedScene(scene_id=scene.id, code=validate_manim_code(code), vo_lines=list(scene.vo_script))
+    code = validate_manim_code(content if isinstance(content, str) else str(content))
+    if not layout_check:
+        return CodedScene(scene_id=scene.id, code=code, vo_lines=list(scene.vo_script))
+
+    best_code, best_report = code, probe_scene(code)
+    report = best_report
+    for attempt in range(1, max_repairs + 1):
+        if not _needs_repair(report, repair_warnings):
+            break
+        if log:
+            log(f"      {scene.id} layout: {len(report.errors)} errors, {len(report.warnings)} warnings "
+                f"-> repair {attempt}/{max_repairs}")
+        prompt = (
+            f"Input SCENE_SPEC: {spec_json}\n\n"
+            f"Your previous code for this scene:\n```python\n{code}\n```\n\n"
+            f"{report.as_feedback(include_warnings=True)}\n\n"
+            "Return the full corrected file. " + CODE_RULES
+        )
+        content = _agent_text(coding_agent.run(prompt))
+        try:
+            code = validate_manim_code(content if isinstance(content, str) else str(content))
+        except ValidationError as e:
+            if log:
+                log(f"      {scene.id} repair {attempt} rejected by validator: {e}")
+            continue
+        report = probe_scene(code)
+        if _report_score(report) < _report_score(best_report):
+            best_code, best_report = code, report
+
+    if log and not best_report.skipped:
+        status = "clean" if not best_report.issues else (
+            f"{len(best_report.errors)} errors, {len(best_report.warnings)} warnings remain")
+        log(f"      {scene.id} layout: {status}")
+    elif log:
+        log(f"      {scene.id} layout check skipped ({best_report.skip_reason})")
+    return CodedScene(
+        scene_id=scene.id, code=best_code, vo_lines=list(scene.vo_script),
+        layout_issues=[vars(i) for i in best_report.issues],
+    )
 
 
 def _write_outputs(out_dir: Path, knowledge: KnowledgePack, plan: ScenePlan, coded: list[CodedScene]) -> None:
@@ -108,6 +184,9 @@ def _write_outputs(out_dir: Path, knowledge: KnowledgePack, plan: ScenePlan, cod
     (out_dir / "agent2-output.json").write_text(plan.model_dump_json(indent=2), encoding="utf-8")
     for scene in sorted(coded, key=lambda s: s.scene_id):
         (out_dir / f"agent3-{scene.scene_id}.py").write_text(scene.code, encoding="utf-8")
+    if any(c.layout_issues for c in coded):
+        (out_dir / "layout-report.json").write_text(
+            json.dumps({c.scene_id: c.layout_issues for c in coded}, indent=2), encoding="utf-8")
 
 
 def _with_cot_retry(factory_name: str, config: PipelineConfig) -> Any:
@@ -164,6 +243,8 @@ def run_pipeline(config: PipelineConfig) -> PipelineResult:
                 model=config.model, prompt_set=config.prompt_set, mode="cot"),
             duration_sec=config.duration_sec, duration_tolerance=config.duration_tolerance,
         )
+    for warning in check_plan_naming(plan):
+        _log(config, f"      plan warning: {warning}")
     total = sum(s.duration_sec for s in plan.scenes)
     _log(config, f"[2/4] Agent 2 done: title={plan.title!r} scenes={[s.id for s in plan.scenes]} total={total}s")
 
@@ -173,15 +254,18 @@ def run_pipeline(config: PipelineConfig) -> PipelineResult:
 
     def _code(scene_id: str) -> CodedScene:
         _log(config, f"      coding {scene_id} ...")
+        layout_kw = dict(layout_check=config.layout_check, max_repairs=config.layout_max_repairs,
+                         repair_warnings=config.layout_repair_warnings,
+                         log=lambda m: _log(config, m))
         try:
-            coded = run_coding(scenes[scene_id], coding_agent)
+            coded = run_coding(scenes[scene_id], coding_agent, **layout_kw)
         except ValidationError:
             if not config.cot_retry or config.mode_agent3 == "cot":
                 raise
             _log(config, f"      {scene_id} validation failed, retrying with CoT ...")
             cot_coder = agent_factory.create_coding_agent(
                 model=config.model, prompt_set=config.prompt_set, mode="cot")
-            coded = run_coding(scenes[scene_id], cot_coder)
+            coded = run_coding(scenes[scene_id], cot_coder, **layout_kw)
         _log(config, f"      {scene_id} done ({len(coded.code.splitlines())} lines)")
         return coded
 
@@ -251,7 +335,9 @@ def build_workflow(config: PipelineConfig) -> Workflow:
         def _code_fn(step_input: StepInput) -> StepOutput:
             plan = _previous_model(step_input, "Validate plan", ScenePlan)
             scene = next(s for s in plan.scenes if s.id == scene_id)
-            coded = run_coding(scene, coding_agent)
+            coded = run_coding(scene, coding_agent, layout_check=config.layout_check,
+                               max_repairs=config.layout_max_repairs,
+                               repair_warnings=config.layout_repair_warnings)
             return StepOutput(content=coded.code, success=True)
 
         _code_fn.__name__ = f"code_{scene_id.lower()}"
@@ -311,8 +397,13 @@ def build_workflow(config: PipelineConfig) -> Workflow:
 # Offline dry-run (no LLM): validates an existing example end-to-end
 # ---------------------------------------------------------------------------
 
-def run_dry_run(example_dir: str | Path, out_dir: str | Path) -> PipelineResult:
-    """Validate examples/<example>/ outputs + code without calling any model."""
+def run_dry_run(example_dir: str | Path, out_dir: str | Path, layout_check: bool = False) -> PipelineResult:
+    """Validate examples/<example>/ outputs + code without calling any model.
+
+    With ``layout_check=True`` each scene is also executed and measured
+    (needs manimgl); issues land in ``CodedScene.layout_issues`` and
+    ``out_dir/layout-report.json``. They are reported, not raised.
+    """
     example_dir, out_dir = Path(example_dir), Path(out_dir)
     knowledge = validate_knowledge_pack(
         json.loads((example_dir / "agent1-output.json").read_text(encoding="utf-8")))
@@ -323,10 +414,10 @@ def run_dry_run(example_dir: str | Path, out_dir: str | Path) -> PipelineResult:
         code_file = example_dir / f"agent3-{scene.id}.py"
         if not code_file.exists():
             continue  # some examples ship only a subset of scenes
+        code = validate_manim_code(code_file.read_text(encoding="utf-8"))
+        issues = [vars(i) for i in probe_scene(code).issues] if layout_check else []
         coded.append(CodedScene(
-            scene_id=scene.id,
-            code=validate_manim_code(code_file.read_text(encoding="utf-8")),
-            vo_lines=list(scene.vo_script),
+            scene_id=scene.id, code=code, vo_lines=list(scene.vo_script), layout_issues=issues,
         ))
     if not coded:
         raise ValidationError(f"No agent3-*.py files found in {example_dir}")

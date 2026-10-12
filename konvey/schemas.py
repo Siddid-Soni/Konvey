@@ -58,6 +58,10 @@ LAYOUT_OPS: tuple[str, ...] = (
     "scale",
     "frame_reorient",
     "target",
+    # region placement helper + fit-to-box (manim-reference/spatial-layout.md)
+    "place",
+    "set_max_width",
+    "set_max_height",
 )
 
 # Base animation tokens from manim-reference/animations.md +
@@ -218,6 +222,8 @@ class CodedScene(BaseModel):
     scene_id: Literal["S1", "S2", "S3"]
     code: str = Field(description="Full .py source with SingleScene.construct")
     vo_lines: List[str] = Field(default_factory=list)
+    # Remaining findings from konvey.layout_probe (empty = clean or not checked).
+    layout_issues: List[dict] = Field(default_factory=list)
 
 
 class PipelineResult(BaseModel):
