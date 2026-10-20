@@ -1,0 +1,168 @@
+# Test set for the stage renderer (spec 2026-10-15-general-stage-themes-design.md §2.5).
+# Topics only (ideas from github.com/3b1b/videos), no code. `keywords` feed two guards:
+# no Agent 3 example may mention them, and no code under konvey/ or prompts/agent3-stage/ may
+# name them (a fix found on one topic must be general).
+
+[[topic]]
+id = "T1"
+slug = "binary-search"
+prompt = "Explain binary search: how halving a sorted list finds any item in about log2(n) steps."
+keywords = ["binary search", "bisection"]
+
+[[topic]]
+id = "T2"
+slug = "hamming-codes"
+prompt = "Explain Hamming codes: how parity checks on groups of bits locate and fix a single flipped bit."
+keywords = ["hamming", "parity", "error correcting", "error-correcting", "error correction"]
+
+[[topic]]
+id = "T3"
+slug = "sir-epidemic"
+prompt = "Explain the SIR epidemic model: how susceptible, infected and recovered counts change over time, why infections peak, and how lowering contact flattens the curve."
+keywords = ["sir model", "epidemic", "infected", "infection", "susceptible", "pandemic"]
+
+[[topic]]
+id = "T4"
+slug = "hairy-ball"
+prompt = "Explain the hairy ball theorem: why any continuous tangent vector field on a sphere must vanish somewhere."
+keywords = ["hairy ball", "cowlick", "hairy"]
+
+[[topic]]
+id = "T5"
+slug = "cosmic-distance-ladder"
+prompt = "Explain the first rungs of the cosmic distance ladder: how ancient astronomers used shadows and angles to measure the size of the Earth and the distance to the Moon and Sun."
+keywords = ["cosmic distance", "distance ladder", "parallax", "eratosthenes", "astronomer"]
+
+# Added 2026-10-16: broader genres (walkthrough-heavy, 3D geometry, probability, finance).
+[[topic]]
+id = "T6"
+slug = "insertion-sort"
+prompt = "Explain insertion sort: how it builds a sorted prefix one item at a time, and why it takes about n^2/2 comparisons in the worst case."
+keywords = ["insertion sort", "sorted prefix"]
+
+[[topic]]
+id = "T7"
+slug = "seasons"
+prompt = "Explain why Earth has seasons: how the 23.4 degree axial tilt changes the angle and spread of sunlight over a year, not the distance to the Sun."
+keywords = ["season", "axial tilt", "solstice", "equinox"]
+
+[[topic]]
+id = "T8"
+slug = "monty-hall"
+prompt = "Explain the Monty Hall problem: why switching doors wins two times out of three."
+keywords = ["monty hall", "goat", "switching doors"]
+
+[[topic]]
+id = "T9"
+slug = "compound-interest"
+prompt = "Explain compound interest: how compounding more often grows money faster, and why the limit of continuous compounding is e^(rt)."
+keywords = ["compound interest", "compounding", "continuous compounding"]
+
+[[topic]]
+id = "T10"
+slug = "pythagoras-rearrangement"
+prompt = "Explain the Pythagorean theorem with the rearrangement proof: four copies of a right triangle inside a square of side a+b."
+keywords = ["pythagoras", "pythagorean", "hypotenuse"]
+
+# Added 2026-10-16 (held-out): never used while tuning prompts/renderer. T11, T13, T15, T17 are 3D.
+[[topic]]
+id = "T11"
+slug = "euler-polyhedra"
+prompt = "Explain Euler's polyhedron formula V - E + F = 2: count vertices, edges and faces on a tetrahedron, a cube and an octahedron and see the same answer every time."
+# Shape names (tetrahedron, …) are general solid vocabulary the renderer offers, so only the
+# theorem's own words are guarded.
+keywords = ["euler's polyhedron", "euler characteristic", "v - e + f", "vertices minus edges"]
+
+[[topic]]
+id = "T12"
+slug = "dijkstra"
+prompt = "Explain Dijkstra's shortest path algorithm on a small weighted graph: how it settles the closest unsettled node and relaxes its edges until every distance is final."
+keywords = ["dijkstra", "shortest path", "relax"]
+
+[[topic]]
+id = "T13"
+slug = "sphere-area"
+prompt = "Explain why a sphere's surface area is 4 pi r^2, Archimedes' way: project the sphere sideways onto the cylinder that wraps it and see that every band keeps its area."
+keywords = ["archimedes", "surface area of a sphere", "hat-box", "hat box"]
+
+[[topic]]
+id = "T14"
+slug = "bayes-test"
+prompt = "Explain Bayes' theorem with a medical test: a 1% base rate and a 90% accurate test, and why a positive result still means you are probably healthy."
+keywords = ["bayes", "base rate", "medical test"]
+
+[[topic]]
+id = "T15"
+slug = "cross-product"
+prompt = "Explain the 3D cross product: it gives a vector perpendicular to both inputs whose length is the area of the parallelogram they span, with direction from the right-hand rule."
+keywords = ["cross product", "right-hand rule", "right hand rule", "parallelogram"]
+
+[[topic]]
+id = "T16"
+slug = "newton-sqrt"
+prompt = "Explain Newton's method for computing the square root of 2: start from a guess, average it with 2 divided by the guess, and watch the digits double each step."
+keywords = ["newton's method", "square root of 2", "babylonian"]
+
+[[topic]]
+id = "T17"
+slug = "spherical-triangle"
+prompt = "Explain why a triangle drawn on a sphere has angles adding up to more than 180 degrees, using the triangle with one vertex at the north pole and two on the equator."
+keywords = ["spherical triangle", "great circle", "spherical excess", "north pole"]
+
+# Added 2026-10-16 for the 3/2/1-agent comparison (never used while tuning). T18-T20 go to
+# deepseek-v4.1-flash, T21-T23 to claude-haiku-5-5. Each model gets one 3D topic.
+[[topic]]
+id = "T18"
+slug = "birthday-paradox"
+prompt = "Explain the birthday paradox: why a room of just 23 people has better than even odds that two share a birthday."
+keywords = ["birthday paradox", "shared birthday", "share a birthday"]
+
+[[topic]]
+id = "T19"
+slug = "heap-insert"
+prompt = "Explain how inserting into a binary min-heap works: add the new value at the bottom and sift it up, swapping with its parent while the parent is larger."
+keywords = ["binary heap", "min-heap", "sift up", "heapify", "priority queue"]
+
+[[topic]]
+id = "T20"
+slug = "rotation-matrix"
+prompt = "Explain how a rotation matrix turns a 3D vector about the z-axis by an angle theta, and why lengths stay the same."
+keywords = ["rotation matrix", "rotate about the z-axis", "orthogonal matrix"]
+
+[[topic]]
+id = "T21"
+slug = "tower-of-hanoi"
+prompt = "Explain the Tower of Hanoi: why moving n disks takes exactly 2^n - 1 moves."
+keywords = ["tower of hanoi", "hanoi"]
+
+[[topic]]
+id = "T22"
+slug = "pyramid-volume"
+prompt = "Explain why a square pyramid's volume is one third of base area times height, by fitting three equal pyramids together into a cube."
+keywords = ["volume of a pyramid", "pyramid's volume", "three pyramids", "three equal pyramids"]
+
+[[topic]]
+id = "T23"
+slug = "fibonacci-golden-ratio"
+prompt = "Explain the Fibonacci numbers and why the ratio of consecutive terms approaches the golden ratio, about 1.618."
+keywords = ["fibonacci numbers", "fibonacci sequence", "golden ratio"]
+
+# Added 2026-10-16 (late) after the hull solid and <draw> canvas: topics whose real object
+# is a plane figure, a solid cut into pieces, or a tiling (never used while tuning).
+[[topic]]
+id = "T24"
+slug = "triangle-angle-sum"
+prompt = "Explain why the three angles of any triangle add up to 180 degrees, using a line through one corner parallel to the opposite side."
+keywords = ["angle sum", "angles of a triangle", "parallel line", "alternate angles"]
+
+[[topic]]
+id = "T25"
+slug = "cuboctahedron"
+prompt = "Explain how slicing all eight corners off a cube, each cut through the midpoints of the edges at that corner, leaves a cuboctahedron with 8 triangles and 6 squares, and what fraction of the cube's volume remains."
+keywords = ["cuboctahedron", "slicing all eight corners", "midpoints of the edges"]
+
+[[topic]]
+id = "T26"
+slug = "euclid-squares"
+prompt = "Explain the Euclidean algorithm for the gcd of 21 and 13 by cutting the largest possible squares off a 21 by 13 rectangle until only squares remain."
+keywords = ["euclidean algorithm", "greatest common divisor", "gcd of 21 and 13", "squares off a rectangle"]

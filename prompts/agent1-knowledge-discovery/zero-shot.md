@@ -28,12 +28,12 @@ Output strict JSON (no markdown fences, no commentary):
 }
 
 Rules:
-- No visuals, no scene plan, no code.
+- No layout, no scene plan, no code. What the request asks to be shown goes in `requested`.
 - Definitions must be falsifiable. No fluff, no marketing.
 - mechanism_steps must be causal and ordered.
 - knowledge_triples Relations ONLY from: is-a, part-of, causes, stores, transforms, contrasts-with, example-of.
 - analogy_candidates must include where analogy breaks.
-- narration_beats_3b1b_style: concrete hook first (like "Michael Jordan plays sport of ___"), intuition second, formal term late.
+- narration_beats_3b1b_style: the opening chosen in `hook` first, intuition second, formal term late.
 - If uncertain, hedge in text but keep JSON valid.
 }
 ```
@@ -42,7 +42,7 @@ Rules:
 
 - **In:** `{USER_PROMPT}` e.g. `"Where do facts live in an LLM?"`
 - **Out:** strict JSON `KNOWLEDGE_PACK` (consumed by Agent 2).
-- **Fail closed:** no visuals, no manim, no scene IDs.
+- **Fail closed:** no layout, no manim, no scene IDs.
 
 ## When to use
 

@@ -3,9 +3,11 @@ name = "konvey"
 version = "0.1.0"
 description = "Konvey — 3-agent explainer-video pipeline (Knowledge Discovery -> Planning + Scene Generation -> Manim Coding) implemented with Agno"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "agno>=3.0.10",
+    "anthropic>=1.14.0",
+    "google-genai>=2.30.1",
     "openai>=3.15.0",
     "pydantic>=2.13.5",
     "python-dotenv>=1.2.3",
@@ -14,6 +16,30 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+]
+layout = [
+    "playwright>=1.64.0",
+]
+render = [
+    "manimgl>=1.7.2",
+    "setuptools<81",
+]
+# Narration (konvey.speech): DramaBox TTS (code vendored in konvey/speech/vendor/dramabox), run on the GPU
+# before manimgl renders.
+speech = [
+    "torch==2.8.0",
+    "torchaudio==2.8.0",
+    "transformers>=4.57,<5",
+    "accelerate>=0.25.0",
+    "bitsandbytes>=0.45.0",
+    "safetensors>=0.4.0",
+    "huggingface-hub>=0.20.0,<1.0",
+    "einops>=0.7.0",
+    "sentencepiece>=0.1.99",
+    "scipy>=1.11",
+    "pillow>=10",
+    "av>=12.0.0",
+    "soundfile>=0.12",
 ]
 
 [build-system]

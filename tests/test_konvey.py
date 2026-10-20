@@ -1,6 +1,7 @@
 """Tests for the Konvey Agno pipeline (all offline, no API keys).
 
-Ground truth: examples/*/agent{1,2}-output.json + agent3-S*.py.
+Ground truth: tests/fixtures/examples/*/agent{1,2}-output.json (hand-written examples from
+the Manim era; their extra plan fields are ignored).
 """
 
 import copy
@@ -9,19 +10,16 @@ from pathlib import Path
 
 import pytest
 
-from konvey.pipeline import build_workflow, run_dry_run
-from konvey.prompts import build_agent_instructions, load_agent_template
+from konvey.prompts import build_agent_instructions, load_agent1_template
 from konvey.schemas import KnowledgePack, ScenePlan
 from konvey.validators import (
     ValidationError,
     extract_json,
-    normalize_spatial_relation,
     validate_knowledge_pack,
-    validate_manim_code,
     validate_scene_plan,
 )
 
-EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
+EXAMPLES = Path(__file__).resolve().parent / "fixtures" / "examples"
 
 
 def _load(name: str, fname: str):
@@ -101,109 +99,6 @@ def test_agent2_rejects_duration_mismatch():
         validate_scene_plan(bad, target_duration_sec=90.0)
 
 
-def test_agent2_rejects_unknown_animation():
-    bad = _load("example-01-mlp-facts", "agent2-output.json")
-    bad["scenes"][0]["beats"][0]["animation"]["type"] = "QuantumSparkle"
-    with pytest.raises(ValidationError, match="QuantumSparkle"):
-        validate_scene_plan(bad)
-
-
-def test_agent2_rejects_bad_layout_op():
-    bad = _load("example-01-mlp-facts", "agent2-output.json")
-    bad["scenes"][0]["beats"][0]["layout"][0]["op"] = "teleport"
-    with pytest.raises(ValidationError, match="teleport"):
-        validate_scene_plan(bad)
-
-
-def test_agent2_rejects_predicate_without_layout():
-    bad = _load("example-01-mlp-facts", "agent2-output.json")
-    bad["scenes"][0]["beats"][0]["layout"] = []
-    with pytest.raises(ValidationError, match="layout"):
-        validate_scene_plan(bad)
-
-
-def test_normalize_spatial_relation_paper_sec32():
-    assert normalize_spatial_relation("contains") == "on top of"
-    assert normalize_spatial_relation("stands near") == "at left of"
-    assert normalize_spatial_relation("sits atop") == "on top of"
-    assert normalize_spatial_relation("above") == "above"
-
-
-# --- Agent 3 ---------------------------------------------------------------
-
-def _all_code_files():
-    return sorted(EXAMPLES.glob("*/agent3-*.py"))
-
-
-def test_agent3_ground_truth_passes():
-    files = _all_code_files()
-    assert len(files) >= 10
-    for f in files:
-        assert validate_manim_code(f.read_text(encoding="utf-8"))
-
-
-def test_agent3_allows_self_check_comment():
-    """CoT prompt mandates '# ... no forbidden APIs (ImageMobject...)' comments."""
-    code = (
-        "from manim_imports_ext import *\n"
-        "class SingleScene(InteractiveScene):\n"
-        "    def construct(self):\n"
-        "        # 4. Self-check: no forbidden APIs (ImageMobject/external/torch)?\n"
-        "        # VO: hello\n"
-        "        self.play(Write(Text('hi')))\n"
-        "        self.wait()\n"
-    )
-    assert validate_manim_code(code)
-
-
-def test_agent3_rejects_real_imagemobject():
-    code = (
-        "from manim_imports_ext import *\n"
-        "class SingleScene(InteractiveScene):\n"
-        "    def construct(self):\n"
-        "        # VO: hello\n"
-        "        self.add(ImageMobject('pic.png'))\n"
-        "        self.wait()\n"
-    )
-    with pytest.raises(ValidationError, match="ImageMobject"):
-        validate_manim_code(code)
-
-
-def test_agent3_rejects_torch_and_missing_vo():
-    code = (
-        "from manim_imports_ext import *\n"
-        "import torch\n"
-        "class SingleScene(InteractiveScene):\n"
-        "    def construct(self):\n"
-        "        # VO: hello\n"
-        "        self.wait()\n"
-    )
-    with pytest.raises(ValidationError, match="torch"):
-        validate_manim_code(code)
-
-    no_vo = (
-        "from manim_imports_ext import *\n"
-        "class SingleScene(InteractiveScene):\n"
-        "    def construct(self):\n"
-        "        self.wait()\n"
-    )
-    with pytest.raises(ValidationError, match="# VO:"):
-        validate_manim_code(no_vo)
-
-
-def test_agent3_rejects_movetotarget_without_target():
-    code = (
-        "from manim_imports_ext import *\n"
-        "class SingleScene(InteractiveScene):\n"
-        "    def construct(self):\n"
-        "        # VO: hello\n"
-        "        self.play(MoveToTarget(m))\n"
-        "        self.wait()\n"
-    )
-    with pytest.raises(ValidationError, match="generate_target"):
-        validate_manim_code(code)
-
-
 # --- JSON extraction -------------------------------------------------------
 
 def test_extract_json_fences_and_tags():
@@ -216,14 +111,10 @@ def test_extract_json_fences_and_tags():
 # --- Prompts ---------------------------------------------------------------
 
 def test_prompt_templates_load():
+    for mode in ("few-shot", "zero-shot", "cot"):
+        assert load_agent1_template(mode)
     for agent in (1, 2, 3):
-        for mode in ("few-shot", "zero-shot", "cot"):
-            assert load_agent_template(agent, "generic", mode)
-    for s in ("set-01-mlp-facts", "set-02-clt-galton-board", "set-03-shadows-cube"):
-        for agent in (1, 2, 3):
-            assert load_agent_template(agent, s, "few-shot")  # type: ignore[arg-type]
-    instructions = build_agent_instructions(2, "set-01-mlp-facts", "few-shot")
-    assert "LaggedStartMap" in instructions  # authority refs appended
+        assert "{{" not in build_agent_instructions(agent)  # display docs filled in
 
 
 # --- Model config ----------------------------------------------------------
@@ -238,6 +129,9 @@ def test_resolve_model_defaults_to_minimax(monkeypatch):
         resolve_model,
     )
 
+    monkeypatch.delenv("KONVEY_PROVIDER", raising=False)
+    monkeypatch.delenv("OPENCODE_API_KEY", raising=False)
+    monkeypatch.setattr("konvey.agents.load_dotenv", lambda: None)
     monkeypatch.setenv("MINIMAX_API_KEY", "dummy")
     monkeypatch.setenv("KONVEY_MODEL_ID", "MiniMax-M3")
     model = resolve_model()
@@ -247,6 +141,91 @@ def test_resolve_model_defaults_to_minimax(monkeypatch):
     assert isinstance(create_knowledge_agent().model, MiniMax)
     assert isinstance(create_planning_agent().model, MiniMax)
     assert isinstance(create_coding_agent().model, MiniMax)
+
+
+def test_resolve_model_opencode(monkeypatch):
+    from agno.models.openai.like import OpenAILike
+
+    from konvey.agents import resolve_model
+
+    monkeypatch.setattr("konvey.agents.load_dotenv", lambda: None)
+    monkeypatch.delenv("OPENCODE_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENCODE_MODEL_ID", raising=False)
+    monkeypatch.setenv("KONVEY_MODEL_ID", "MiniMax-M3")  # minimax id must not leak
+    monkeypatch.setenv("KONVEY_PROVIDER", "opencode")
+    monkeypatch.setenv("OPENCODE_API_KEY", "dummy")
+    model = resolve_model()
+    assert isinstance(model, OpenAILike)
+    assert model.base_url == "https://opencode.ai/inference/v1"
+    assert model.id == "glm-5.3"
+    assert model.default_headers["x-opencode-session"]
+    assert model.supports_native_structured_outputs is False
+
+
+def test_resolve_model_deepseek_resends_reasoning(monkeypatch):
+    from agno.models.message import Message
+
+    from konvey.agents import ReasoningOpenAILike, resolve_model
+
+    monkeypatch.setattr("konvey.agents.load_dotenv", lambda: None)
+    monkeypatch.setenv("KONVEY_PROVIDER", "opencode-go")
+    monkeypatch.setenv("OPENCODE_API_KEY", "dummy")
+    monkeypatch.setenv("OPENCODE_MODEL_ID", "deepseek-v4.1-flash")
+    model = resolve_model()
+    assert isinstance(model, ReasoningOpenAILike)
+    # thinking mode rejects a tool-call turn whose reasoning is not sent back
+    turn = model._format_message(Message(role="assistant", content="", reasoning_content="think"))
+    assert turn["reasoning_content"] == "think"
+    assert "reasoning_content" not in model._format_message(Message(role="user", content="hi"))
+
+
+def test_resolve_model_opencode_gemini(monkeypatch):
+    from agno.models.google import Gemini
+
+    from konvey.agents import resolve_model
+
+    monkeypatch.setattr("konvey.agents.load_dotenv", lambda: None)
+    monkeypatch.delenv("OPENCODE_BASE_URL", raising=False)
+    monkeypatch.setenv("KONVEY_PROVIDER", "opencode-go")
+    monkeypatch.setenv("OPENCODE_API_KEY", "dummy")
+    monkeypatch.setenv("OPENCODE_MODEL_ID", "gemini-4-argon-contributor")
+    model = resolve_model()
+    assert isinstance(model, Gemini)
+    assert model.id == "gemini-4-argon-contributor"
+    http = model.client_params["http_options"]
+    assert http["base_url"] == "https://opencode.ai/inference/go/"
+    assert http["api_version"] == "v1"
+    assert http["headers"]["x-opencode-session"]
+    assert http["headers"]["User-Agent"] == "konvey/0.1.0"
+
+
+def test_resolve_model_opencode_go_default_is_muse_responses(monkeypatch):
+    from agno.models.openai.open_responses import OpenResponses
+
+    from konvey.agents import resolve_model
+
+    monkeypatch.setattr("konvey.agents.load_dotenv", lambda: None)
+    monkeypatch.delenv("OPENCODE_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENCODE_MODEL_ID", raising=False)
+    monkeypatch.setenv("KONVEY_PROVIDER", "opencode-go")
+    monkeypatch.setenv("OPENCODE_API_KEY", "dummy")
+    model = resolve_model()
+    assert isinstance(model, OpenResponses)
+    assert model.id == "muse-spark-1.3-contributor"
+    assert model.base_url == "https://opencode.ai/inference/go/v1"
+    assert model.store is False
+    assert model.default_headers["x-opencode-session"]
+
+
+def test_resolve_model_opencode_auto_selected(monkeypatch):
+    from konvey.agents import resolve_model
+
+    monkeypatch.setattr("konvey.agents.load_dotenv", lambda: None)
+    monkeypatch.delenv("KONVEY_PROVIDER", raising=False)
+    monkeypatch.setenv("OPENCODE_API_KEY", "dummy")
+    monkeypatch.setenv("OPENCODE_MODEL_ID", "kimi-k3")
+    model = resolve_model()
+    assert model.provider == "OpenCode" and model.id == "kimi-k3"
 
 
 def test_resolve_model_explicit_passthrough():
@@ -263,88 +242,9 @@ def _fill(template: str, mapping: dict) -> str:
     return template
 
 
-def test_prompts_fill_with_example01_data():
-    """Every prompt template must accept real pipeline data with no
-    leftover placeholders (USER_PROMPT -> KNOWLEDGE_PACK -> SCENE_SPEC)."""
-    knowledge = (EXAMPLES / "example-01-mlp-facts" / "agent1-output.json").read_text(encoding="utf-8")
-    plan = json.loads((EXAMPLES / "example-01-mlp-facts" / "agent2-output.json").read_text(encoding="utf-8"))
-    scene_spec = json.dumps(plan["scenes"][0])
+def test_agent1_prompt_fills_with_user_prompt():
+    """The Agent 1 template takes the user prompt with no leftover placeholder."""
     user_prompt = "Where do facts live in an LLM?"
-    sets = ["generic", "set-01-mlp-facts", "set-02-clt-galton-board", "set-03-shadows-cube"]
-
-    for s in sets:
-        filled1 = _fill(load_agent_template(1, s, "few-shot"), {"{USER_PROMPT}": user_prompt})  # type: ignore[arg-type]
-        assert "{USER_PROMPT}" not in filled1 and user_prompt in filled1
-
-        filled2 = _fill(
-            load_agent_template(2, s, "few-shot"),  # type: ignore[arg-type]
-            {"{KNOWLEDGE_PACK}": knowledge, "{DURATION_SEC, default 90}": "90"},
-        )
-        assert "{KNOWLEDGE_PACK}" not in filled2 and "MLPs act as key-value memories" in filled2
-
-        filled3 = _fill(load_agent_template(3, s, "few-shot"), {"{SCENE_SPEC}": scene_spec})  # type: ignore[arg-type]
-        assert "{SCENE_SPEC}" not in filled3 and "LaggedStartMap" in filled3
-
-
-# --- Progress output (stub agents, no network) ------------------------------
-
-def test_run_pipeline_progress_output(tmp_path, capsys, monkeypatch):
-    import konvey.pipeline as pipe
-    from konvey.pipeline import PipelineConfig, run_pipeline
-
-    a1 = (EXAMPLES / "example-01-mlp-facts" / "agent1-output.json").read_text(encoding="utf-8")
-    a2 = (EXAMPLES / "example-01-mlp-facts" / "agent2-output.json").read_text(encoding="utf-8")
-    code = (EXAMPLES / "example-01-mlp-facts" / "agent3-S1.py").read_text(encoding="utf-8")
-
-    class _Resp:
-        def __init__(self, content):
-            self.content = content
-
-    class _StubAgent:
-        def __init__(self, content):
-            self.content = content
-            self.model = None
-
-        def run(self, *args, **kwargs):
-            return _Resp(self.content)
-
-    stubs = {"knowledge": _StubAgent(a1), "planning": _StubAgent(a2), "coding": _StubAgent(code)}
-    monkeypatch.setattr(pipe, "_with_cot_retry", lambda name, config: stubs[name])
-
-    result = run_pipeline(PipelineConfig(user_prompt="Where do facts live?", out_dir=str(tmp_path / "live")))
-    assert [s.scene_id for s in result.scenes] == ["S1", "S2", "S3"]
-    out = capsys.readouterr().out
-    for marker in ("[1/4] Agent 1", "[2/4] Agent 2", "[3/4] Agent 3",
-                   "S1 done", "S2 done", "S3 done", "[4/4] Done."):
-        assert marker in out, f"missing progress marker {marker!r} in:\n{out}"
-
-
-# --- Dry run + workflow construction ---------------------------------------
-
-def test_dry_run_example01(tmp_path):
-    result = run_dry_run(EXAMPLES / "example-01-mlp-facts", tmp_path / "dry")
-    assert [s.scene_id for s in result.scenes] == ["S1", "S2", "S3"]
-    assert (tmp_path / "dry" / "agent1-output.json").exists()
-    assert (tmp_path / "dry" / "agent3-S1.py").exists()
-
-
-def test_build_workflow_structure():
-    from konvey.pipeline import PipelineConfig
-
-    wf = build_workflow(PipelineConfig(user_prompt="Where do facts live in an LLM?"))
-    names: list[str] = []
-
-    def collect(steps):
-        for st in steps:
-            name = getattr(st, "name", type(st).__name__)
-            names.append(name)
-            for attr in ("steps", "_steps", "sub_steps"):
-                sub = getattr(st, attr, None)
-                if sub:
-                    collect(sub if isinstance(sub, list) else list(sub))
-
-    collect(wf.steps)
-    flat = " ".join(names)
-    for expected in ("Knowledge", "Validate knowledge", "Planning", "Validate plan",
-                     "Code S1", "Code S2", "Code S3", "Assemble"):
-        assert expected in flat, f"{expected} missing from workflow: {names}"
+    for mode in ("few-shot", "zero-shot", "cot"):
+        filled = _fill(load_agent1_template(mode), {"{USER_PROMPT}": user_prompt})  # type: ignore[arg-type]
+        assert "{USER_PROMPT}" not in filled and user_prompt in filled

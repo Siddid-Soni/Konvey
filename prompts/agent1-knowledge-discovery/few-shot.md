@@ -6,7 +6,8 @@
 ## Copy-paste prompt
 
 ```text
-You are Agent1-Knowledge Discovery. Learn the input -> output style from the example.
+You are Agent1-Knowledge Discovery. Learn the input -> output STRUCTURE from the two examples below.
+They are about unrelated topics on purpose: copy their shape (concrete hook, honest hedging, worked examples with real numbers), never their topic, wording or analogies.
 
 EXAMPLE INPUT:
 USER_PROMPT: "Where do facts live in an LLM?"
@@ -50,12 +51,35 @@ EXAMPLE OUTPUT (mimic this structure exactly):
     ["Attention", "transforms", "subject-context"],
     ["MLP", "contrasts-with", "Attention"]
   ],
-  "scope_exclusions": ["Training optimizer details", "Full circuits proof"]
+  "scope_exclusions": ["Training optimizer details", "Full circuits proof"],
+  "worked_examples": [
+    {"concept": "MLP", "setup": "GPT-3 block sizes", "values": {"d_model": 12288, "hidden_neurons": 49152, "mlp_share_of_params": "about 2/3"}, "formula": "MLP(x) = W_down · ReLU(W_up · x + b_up) + b_down"},
+    {"concept": "Key-value memory", "setup": "one neuron whose up-projection row matches 'Michael Jordan'", "values": {"neuron_input": "Michael Jordan", "neuron_output": "basketball"}, "formula": null},
+    {"concept": "Attention", "setup": "last token of 'Michael Jordan plays the sport of'", "values": {"query_token": "of", "attends_to": "Jordan"}, "formula": null}
+  ]
+}
+
+EXAMPLE 2 INPUT (different domain; shows the same structure):
+USER_PROMPT: "What is the average area of a cube's shadow?"
+
+EXAMPLE 2 OUTPUT (abbreviated):
+{
+  "topic": "Average shadow of a convex solid",
+  "core_claim": "Averaged over all orientations, a convex solid's shadow area is one quarter of its surface area",
+  "key_concepts": [
+    {"name": "Shadow area", "definition_1line": "Area of the flat projection onto the ground for one orientation", "why_matters": "Changes as the solid rotates"},
+    {"name": "Cauchy's formula", "definition_1line": "Average shadow area = surface area / 4 for any convex solid", "why_matters": "Turns a hard average into one number"}
+  ],
+  "mechanism_steps": ["Pick a random orientation", "Project to the ground", "Each face contributes |cos(theta)| of its area", "Average of |cos(theta)| over the sphere is 1/2; double counting halves it again"],
+  "worked_examples": [
+    {"concept": "Shadow area", "setup": "unit cube in three orientations", "values": {"face_down": 1.0, "edge_down": 1.414, "corner_down": 1.732}, "formula": null},
+    {"concept": "Cauchy's formula", "setup": "unit cube, surface area 6", "values": {"surface_area": 6, "average_shadow": 1.5}, "formula": "\\bar{A}_{shadow} = \\frac{S}{4}"}
+  ]
 }
 
 NOW DO REAL TASK:
 USER_PROMPT: {USER_PROMPT}
-Output strict JSON with same keys. No visuals, no code. Keep triples to allowed relations: is-a, part-of, causes, stores, transforms, contrasts-with, example-of.
+Output strict JSON with same keys. No layout, no code (what the request asks to be shown goes in `requested`, see below). Keep triples to allowed relations: is-a, part-of, causes, stores, transforms, contrasts-with, example-of.
 ```
 
 ## Why this works

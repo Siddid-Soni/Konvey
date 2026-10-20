@@ -15,7 +15,7 @@ Reason inside <reasoning>:
 4. Convert answers to mechanism_steps in causal order (4-7 steps).
 5. Extract knowledge_triples [Subject, Relation, Object] using only: is-a, part-of, causes, stores, transforms, contrasts-with, example-of.
 6. Propose 2 analogies + where each breaks.
-7. Draft 3 narration_beats in 3b1b caption style: concrete hook -> intuition -> late term. Reference style: "Michael Jordan plays sport of ___" / "mole has different meanings".
+7. Draft 3 narration_beats in 3b1b caption style: the opening chosen in `hook` -> intuition -> late term.
 
 Then output <output_json> with exact schema:
 {
@@ -31,7 +31,7 @@ Then output <output_json> with exact schema:
   "scope_exclusions": []
 }
 
-Rule: reasoning may be verbose, JSON must be strict and self-contained for Agent2. No visuals, no code.
+Rule: reasoning may be verbose, JSON must be strict and self-contained for Agent2. No layout, no code; what the request asks to be shown goes in `requested`.
 ```
 
 ## When to use
