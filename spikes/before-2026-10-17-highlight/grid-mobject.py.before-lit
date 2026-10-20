@@ -1,0 +1,414 @@
+"""``<grid>``: a table of cells; rows/columns light up, one cell can be flagged, a window (a filter
+over an image) frames a block of cells and slides cell by cell, ``heat`` colours cells by value
+(manimgl)."""
+
+from __future__ import annotations
+
+import numpy as np
+
+from manimlib import *  # noqa: F401,F403
+
+from ...match import as_num, split_list
+from ...tree import BeatError, Node
+from ...theme import current
+from ..base import CELL, cell_width, index_set, _label, Block, _parts, _swap
+from . import SWEEPS, struck
+
+MAX_STEPS = 9    # a window further along than this jumps straight to its new place
+
+
+def _heat_colors(values: list[str], spec: str, where: str) -> list[str | None]:
+    """Fill colour per cell from its number (None: not a number, keeps the plain fill). One ramp,
+    no legend: dark to accent; with negatives, the low end runs to a second hue through dark."""
+    th = current()
+    nums = [as_num(v) if str(v).strip() else None for v in values]
+    got = [n for n in nums if n is not None]
+    if not got:
+        return [None] * len(values)
+    if spec.strip().lower() in ("true", "auto", "yes", "1", ""):
+        lo, hi = min(got), max(got)
+    else:
+        try:
+            lo, hi = (float(x) for x in spec.split(","))
+        except ValueError as e:
+            raise BeatError(f'{where} heat="{spec}": use "true" or "low,high"') from e
+    base, top, neg = (np.array(color_to_rgb(c)) for c in (th.panel_fill, th.accent, th.palette[0]))
+
+    def ramp(n: float) -> str:
+        if lo < 0 < hi:                  # diverging: 0 is dark, signs get their own hue
+            t, end = (n / hi, top) if n >= 0 else (n / lo, neg)
+        else:
+            t, end = (0.18 + 0.82 * (n - lo) / (hi - lo) if hi > lo else 1.0), top
+        t = float(np.clip(t, 0, 1))
+        return rgb_to_hex(np.sqrt(base ** 2 + (end ** 2 - base ** 2) * t))
+    return [None if n is None else ramp(n) for n in nums]
+
+
+def _ink_on(fill: str) -> str:
+    """Readable text on a heat fill: dark text on a light cell."""
+    r, g, b = color_to_rgb(fill)
+    th = current()
+    return th.bg if 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.45 else th.ink
+
+
+def _window_spec(node: Node, rows: int, cols: int) -> tuple[int, int, int, int] | None:
+    raw = node.attrs.get("window", "").strip()
+    if not raw:
+        return None
+    try:
+        v = [int(x) for x in raw.split(",")]
+        r, c, h, w = (*v, 1, 1) if len(v) == 2 else v
+        assert h >= 1 and w >= 1 and 0 <= r and r + h <= rows and 0 <= c and c + w <= cols
+    except (ValueError, AssertionError, TypeError) as e:
+        raise BeatError(f'<grid id={node.id}> window="{raw}": use "row,col,height,width" inside '
+                        f'the {rows}x{cols} grid') from e
+    return r, c, h, w
+
+
+def _head(text: str, size: float, color: str, lit: bool, w: float | None = None) -> VGroup:
+    """A row or column name: the text in a soft rounded box (lit: the accent, stronger)."""
+    th = current()
+    t = _label(text, size, th.accent if lit else th.ink)
+    box = RoundedRectangle(w or t.get_width() + 0.3, max(0.5, t.get_height() + 0.2), corner_radius=0.1)
+    box.set_fill(color, 0.3 if lit else 0.14).set_stroke(color, 3 if lit else 1.5)
+    return VGroup(box, t.move_to(box))
+
+
+def _ramp(f: float, end: str) -> str:
+    """Muted (small) to ``end`` (large) in perceived lightness: a dot's colour by its size."""
+    a, b = np.array(color_to_rgb(current().muted)), np.array(color_to_rgb(end))
+    t = float(np.clip(f, 0, 1))
+    return rgb_to_hex(np.sqrt(a ** 2 + (b ** 2 - a ** 2) * t))
+
+
+class GridBlock(Block):
+    tag = "grid"
+
+    def __init__(self, node: Node):
+        th = current()
+        where = f"<grid id={node.id}>"
+        try:
+            rows, cols = int(node.attrs["rows"]), int(node.attrs["cols"])
+        except (KeyError, ValueError) as e:
+            raise BeatError(f"{where} needs rows= and cols= (integers)") from e
+        raw = node.attrs.get("values", "")
+        values = split_list(raw, rows=True) if raw.strip() else [""] * (rows * cols)
+        if len(values) != rows * cols:
+            raise BeatError(f"{where} has {len(values)} values for {rows}x{cols} = {rows * cols} cells")
+        hr = index_set(node.attrs.get("highlight-rows", ""), rows, "highlight-rows")
+        hc = index_set(node.attrs.get("highlight-cols", ""), cols, "highlight-cols")
+        heads = {}
+        for key, n in (("row-labels", rows), ("col-labels", cols)):
+            raw_l = node.attrs.get(key, "")
+            heads[key] = split_list(raw_l) if raw_l.strip() else []
+            if heads[key] and len(heads[key]) != n:
+                raise BeatError(f'{where} {key} has {len(heads[key])} names for {n} {key[:3]}s')
+        dots = node.attrs.get("cells", "").strip().lower() == "dots"
+        try:
+            gone = struck(node.attrs.get("strike", ""), rows, cols)
+        except ValueError as e:
+            raise BeatError(f"{where} {e}") from e
+        sweep = node.attrs.get("sweep", "").strip().lower()
+        if sweep and sweep not in SWEEPS:
+            raise BeatError(f'{where} sweep="{sweep}": use "columns" or "rows"')
+        mark = None
+        if node.attrs.get("mark", "").strip():
+            try:
+                mark = tuple(int(v) for v in node.attrs["mark"].split(","))
+                assert len(mark) == 2 and 0 <= mark[0] < rows and 0 <= mark[1] < cols
+            except (ValueError, AssertionError) as e:
+                raise BeatError(f'{where} mark="{node.attrs["mark"]}": use "row,col" inside the grid') from e
+        win = _window_spec(node, rows, cols)
+        kraw = node.attrs.get("kernel", "").strip()
+        kernel = split_list(kraw, rows=True) if kraw else []
+        if kernel and win is None:
+            raise BeatError(f'{where} kernel= needs a window="row,col,height,width" to sit in')
+        if kernel and len(kernel) != win[2] * win[3]:
+            raise BeatError(f'{where} kernel has {len(kernel)} weights for a {win[2]}x{win[3]} window')
+        heat = None
+        if node.attrs.get("heat", "").strip().lower() not in ("", "false", "no", "0"):
+            # the scene-wide range (prepare) wins over this beat's own numbers
+            heat = _heat_colors(values, node.attrs.get("_heat") or node.attrs["heat"], where)
+        size = float(node.attrs.get("size", 30))
+        # each column as wide as its longest value needs ("committed, kept"), cells stay one row tall
+        # a smaller size= makes the cells shorter too (not only the text), so it buys room
+        ch = CELL * float(np.clip(size / 30, 0.55, 1.0))
+        col_w = [ch if dots else cell_width(values[c::cols], size, ch) for c in range(cols)]
+        col_heads = [_head(t, size * 0.8, th.muted, c in hc) for c, t in enumerate(heads["col-labels"])]
+        for c, h in enumerate(col_heads):        # a name wider than its column widens it
+            col_w[c] = max(col_w[c], h.get_width() + 0.12)
+        top = float(node.attrs.get("_dotmax", 0) or 0) or max(
+            (abs(x) for x in map(as_num, values) if x is not None), default=1.0) or 1.0
+        lit_any = bool(hr or hc)
+        self.cells = VGroup()
+        for r in range(rows):
+            for c in range(cols):
+                k = r * cols + c
+                hits = (r in hr) + (c in hc)
+                box = Rectangle(col_w[c], ch).set_stroke(th.muted, 1.5)
+                ink = th.ink
+                if dots:
+                    box.set_fill(th.accent if hits else th.panel_fill, 0.12 if hits else 0.6)
+                    box.set_stroke(th.muted, 1, 0.55)
+                elif heat and heat[k]:
+                    # the colour is the value; a lit row or column shows in the outline instead
+                    box.set_fill(heat[k], 1)
+                    ink = _ink_on(heat[k])
+                    if hits:
+                        box.set_stroke(th.accent, 4)
+                else:
+                    box.set_fill(th.accent if hits else th.panel_fill, (0.25, 0.5, 0.8)[hits] if hits else 0.6)
+                if k in gone:
+                    box.set_fill(th.palette[2], 0.12)
+                txt = _label(values[k], size, ink)
+                if txt.get_width() > col_w[c] * 0.85:
+                    txt.set_width(col_w[c] * 0.85)
+                txt.label_text = values[k]
+                num = as_num(values[k])
+                f = 0.0 if num is None or k in gone else min(1.0, abs(num) / top)
+                dot = Circle(radius=max(0.45 * min(col_w[c], ch) * np.sqrt(f), 0.004))
+                color = th.palette[3] if num is not None and num < 0 else (
+                    heat[k] if heat and heat[k] else _ramp(0.3 + 0.7 * f, th.accent))
+                seen = dots and f > 0
+                dot.set_stroke(width=0).set_fill(color, (0.92 if not lit_any or hits else 0.92 * 0.35) if seen else 0)
+                if dots:
+                    txt.set_opacity(0)
+                cross = Line(box.get_corner(DL), box.get_corner(UR)).scale(0.7)
+                cross.set_stroke(th.palette[2], 2, 0.7 if k in gone else 0)
+                self.cells.add(VGroup(box, txt.move_to(box), dot.move_to(box), cross.move_to(box)))
+        # columns side by side at their own widths (arrange_in_grid spaces them by the widest)
+        xs = [sum(col_w[:c]) + 0.06 * c + col_w[c] / 2 for c in range(cols)]
+        for k, cell in enumerate(self.cells):
+            r, c = divmod(k, cols)
+            cell.move_to([xs[c], -r * (ch + 0.06), 0])
+        self.cells.center()
+        # names: the columns' over the top row, the rows' at the left, right-aligned
+        self.col_heads = VGroup()
+        for c, h in enumerate(col_heads):
+            h.move_to(self.cells[c]).next_to(self.cells[c], UP, buff=0.14)
+            self.col_heads.add(h)
+        self.row_heads = VGroup()
+        if heads["row-labels"]:
+            texts = [_label(t, size * 0.8, th.ink) for t in heads["row-labels"]]
+            w = max(t.get_width() for t in texts) + 0.3
+            for r, t in enumerate(heads["row-labels"]):
+                h = _head(t, size * 0.8, th.palette[0], r in hr, w)
+                h.move_to(self.cells[r * cols]).next_to(self.cells[r * cols], LEFT, buff=0.16)
+                self.row_heads.add(h)
+        self.values, self.shape, self.struck, self.sweep = values, (rows, cols), gone, sweep
+        self.op = node.attrs.get("op", "").strip()
+        self.lit = (hr, hc)
+        self.dots = dots
+        self.mark_index = None if not mark else mark[0] * cols + mark[1]
+        parts = [self.cells, self.col_heads, self.row_heads]
+        self.marker = VGroup()
+        if mark:
+            cell = self.cells[mark[0] * cols + mark[1]]
+            self.marker.add(Rectangle(cell[0].get_width() + ch * 0.06, ch * 1.06)
+                            .set_stroke(th.accent, 5).move_to(cell))
+            cell[1].set_fill(th.accent)
+        parts.append(self.marker)
+        # the window: a frame over a block of cells, the filter's weights small in its cells' corners
+        self.win = win
+        self.window = VGroup()
+        if win:
+            # accent on a dark rim, so it reads over heat colours too
+            frame = VGroup(Rectangle(1, 1).set_stroke(th.bg, 11), Rectangle(1, 1).set_stroke(th.accent, 5))
+            chips = VGroup(*(_badge("\u00d7" + wt, max(size * 0.45, 12)) for wt in kernel))
+            for chip in chips:          # a chip keeps to its cell's corner, clear of the value
+                if chip.get_width() > 0.45 * min(col_w):
+                    chip.set_width(0.45 * min(col_w))
+            self.window.add(frame, chips)
+            self.place_window(self.window, win[0], win[1])
+        parts.append(self.window)
+        super().__init__(*parts)
+        self.unit = ch
+        self.set_content(node, "rows", "cols", "values", "highlight-rows", "highlight-cols", "mark",
+                         "window", "kernel", "heat", "_heat", "row-labels", "col-labels", "cells", "strike",
+                         "sweep", "op", "_dotmax")
+
+    def place_window(self, window: VGroup, r: int, c: int) -> VGroup:
+        """Put a window (frame, weights) over the cells from (r, c), read off the drawn cells (the
+        layout may have moved and scaled the grid since it was built)."""
+        _, cols = self.shape
+        h, w = self.win[2], self.win[3]
+        boxes = [self.cells[(r + i) * cols + c + j][0] for i in range(h) for j in range(w)]
+        lo = np.min([b.get_corner(DL) for b in boxes], axis=0)
+        hi = np.max([b.get_corner(UR) for b in boxes], axis=0)
+        pad = 0.07 * boxes[0].get_height()
+        frame, weights = window
+        frame.set_width(hi[0] - lo[0] + 2 * pad, stretch=True).set_height(hi[1] - lo[1] + 2 * pad, stretch=True)
+        frame.move_to((lo + hi) / 2)
+        for lab, b in zip(weights, boxes):
+            inset = 0.05 * b.get_height()
+            lab.move_to(b.get_corner(DR) + np.array([-lab.get_width() / 2 - inset, lab.get_height() / 2 + inset, 0]))
+        return window
+
+    def line_box(self, k: int, by_row: bool) -> tuple[np.ndarray, np.ndarray]:
+        """The drawn bounds of row k (``by_row``) or column k."""
+        rows, cols = self.shape
+        boxes = [self.cells[k * cols + c][0] for c in range(cols)] if by_row else \
+            [self.cells[r * cols + k][0] for r in range(rows)]
+        return (np.min([b.get_corner(DL) for b in boxes], axis=0), np.max([b.get_corner(UR) for b in boxes], axis=0))
+
+
+def _badge(text: str, size: float) -> VGroup:
+    """A filter weight: small light text on a dark chip, readable on any cell colour."""
+    th = current()
+    lab = _label(text, size, th.ink)
+    chip = RoundedRectangle(lab.get_width() + 0.1, lab.get_height() + 0.08, corner_radius=0.05)
+    chip.set_fill(th.bg, 0.85).set_stroke(width=0)
+    return VGroup(chip, lab.move_to(chip))
+
+
+def _flash(box: Mobject, lo: float, hi: float) -> Animation:
+    """A cell that just got its value lights its outline between lo and hi of the beat's motion
+    (a carrier, removed after; UpdateFromAlphaFunc ignores rate_func, so the window is ours)."""
+    ring = Rectangle(box.get_width(), box.get_height()).move_to(box).set_fill(opacity=0)
+    ring.set_stroke(current().accent, 6, 0).fix_in_frame()   # a fresh mobject in overlay space
+
+    def glow(m, a):
+        t = float(np.clip((a - lo) / ((hi - lo) or 1), 0, 1))
+        m.set_stroke(opacity=float(np.sin(PI * t)))
+    return UpdateFromAlphaFunc(ring, glow, rate_func=linear, remover=True)
+
+
+def _slide(old: GridBlock, new: GridBlock) -> tuple[Animation | None, int]:
+    """The window steps cell by cell (in reading order, like a filter scanning an image) from
+    its old place to its new one; -> (animation, number of steps)."""
+    a, b = old.window, new.window
+    if not len(a) and not len(b):
+        return None, 0
+    if not len(a):
+        return FadeIn(b, scale=1.15), 1
+    if not len(b) or old.win[2:] != new.win[2:]:
+        return (FadeOut(a) if not len(b) else FadeTransform(a, b)), 1
+    rows, cols = new.shape
+    span = cols - new.win[3] + 1                   # window places per row
+    i0, i1 = old.win[0] * span + old.win[1], new.win[0] * span + new.win[1]
+    if i1 == i0:
+        return Transform(a, b), 0
+    stops = list(range(i0 + 1, i1 + 1)) if 0 < i1 - i0 <= MAX_STEPS else [i1]
+    steps = []
+    for k in stops:
+        target = b if k == i1 else new.place_window(b.copy(), *divmod(k, span))
+        # move, then rest on the cell so the eye can read what it covers
+        steps.append(Transform(a, target, rate_func=squish_rate_func(smooth, 0.0, 0.6)))
+    return Succession(*steps), len(steps)
+
+
+def _sweep(new: GridBlock, lo: float, hi: float) -> Animation:
+    """A frame (with the ``op`` name beside it) visits the columns or rows one by one while each
+    one's values change. A carrier of fixed structure, removed after; it reads the drawn cells
+    (the layout may have scaled the grid)."""
+    th = current()
+    by_row = new.sweep == "rows"
+    rows, cols = new.shape
+    count = rows if by_row else cols
+    boxes = [new.line_box(i, by_row) for i in range(count)]
+    k = new.cells[0][0].get_height() / new.unit
+    rect = Rectangle(1, 1).set_stroke(th.accent, 4).set_fill(opacity=0)
+    lab = _label(new.op, 22 * k, th.accent) if new.op else VMobject()
+    carrier = VGroup(rect, lab)
+    carrier.fix_in_frame()        # overlay space (a fresh mobject is not)
+
+    def update(m, alpha):
+        r, lb = m
+        t = (alpha - lo) / ((hi - lo) or 1)
+        if t <= 0 or t >= 1:
+            m.set_opacity(0)
+            return
+        pos = t * count
+        c = min(count - 1, int(pos))
+        g = smooth(min(1.0, (pos - c) / 0.25)) if c > 0 else 1.0     # glide in, then rest on the line
+        prev = boxes[max(c - 1, 0)]
+        a_lo, a_hi = prev[0] + (boxes[c][0] - prev[0]) * g, prev[1] + (boxes[c][1] - prev[1]) * g
+        pad = 0.05 * k
+        r.set_width(a_hi[0] - a_lo[0] + 2 * pad, stretch=True).set_height(a_hi[1] - a_lo[1] + 2 * pad, stretch=True)
+        r.move_to((a_lo + a_hi) / 2)
+        seen = min(1.0, 10 * t, 10 * (1 - t))
+        r.set_stroke(opacity=seen)
+        if new.op:
+            lb.next_to(r, RIGHT if by_row else DOWN, buff=0.1 * k)
+            lb.set_fill(opacity=seen).set_backstroke(th.bg, 5)
+    return UpdateFromAlphaFunc(carrier, update, rate_func=linear, remover=True)
+
+
+def _grid(old: GridBlock, new: GridBlock) -> Animation:
+    """Same shape. Newly struck cells are crossed out one by one first. With ``sweep``, a frame
+    visits the columns (or rows) in turn and each one's new values arrive as it passes;
+    otherwise cells whose value changes change one after another in reading order, each with a
+    short flash, in step with a sliding window, so a feature map visibly fills in as the filter
+    moves (one step per changed cell). Unchanged cells morph in place."""
+    slide, steps = _slide(old, new)
+    rows, cols = new.shape
+    changed = [k for k, (u, v) in enumerate(zip(old.values, new.values)) if u != v]
+    still = np.linalg.norm(old.cells.get_center() - new.cells.get_center()) < 0.05
+    strikes = sorted(new.struck - old.struck)
+    s_end = 0.4 if strikes and changed else 0.9
+    v_lo = s_end if strikes else 0.0
+    sweep = bool(new.sweep and changed and still)
+    count = (rows if new.sweep == "rows" else cols) if sweep else 0
+    n = len(changed)
+    anims = []
+    for k, (a, b) in enumerate(zip(old.cells, new.cells)):
+        if k in strikes:
+            i = strikes.index(k)
+            lo = 0.04 + (s_end - 0.16) * i / len(strikes)
+            rate = squish_rate_func(smooth, lo, lo + 0.12)
+        elif k not in changed:
+            anims.append(Transform(a, b))
+            continue
+        elif sweep:
+            r, c = divmod(k, cols)
+            line = r if new.sweep == "rows" else c
+            lo = v_lo + (0.98 - v_lo) * (line + 0.2) / count
+            rate = squish_rate_func(smooth, lo, v_lo + (0.98 - v_lo) * (line + 1) / count)
+        elif still:
+            i = changed.index(k)
+            lo, hi = v_lo + (1 - v_lo) * (i + 0.6) / n, v_lo + (1 - v_lo) * (i + 1) / n   # after the window arrives
+            rate = squish_rate_func(smooth, lo, hi)
+        else:
+            rate = squish_rate_func(smooth, 0.0, 1.0)  # the grid moves too: everything together
+        same_text = getattr(a[1], "label_text", None) == getattr(b[1], "label_text", None)
+        anims += [Transform(a[0], b[0], rate_func=rate), Transform(a[2], b[2], rate_func=rate),
+                  Transform(a[3], b[3], rate_func=rate),
+                  Transform(a[1], b[1], rate_func=rate) if same_text else _rated(_swap(a[1], b[1]), rate)]
+        if k in changed and not sweep and not new.dots and str(new.values[k]).strip() and still:
+            i = changed.index(k)
+            lo, hi = v_lo + (1 - v_lo) * (i + 0.6) / n, v_lo + (1 - v_lo) * (i + 1) / n
+            anims.append(_flash(b[0], lo, min(1.0, hi + 0.15 / n)))
+    for a, b in ((old.col_heads, new.col_heads), (old.row_heads, new.row_heads)):
+        anims.append(_parts(a, b) if len(a) == len(b) else
+                     AnimationGroup(FadeOut(a, rate_func=squish_rate_func(smooth, 0, 0.3)),
+                                    FadeIn(b, rate_func=squish_rate_func(smooth, 0.2, 0.6))))
+    anims.append(_parts(old.marker, new.marker))
+    if sweep:
+        anims.append(_sweep(new, v_lo, 0.99))
+    if slide is not None:
+        anims.append(slide)
+    return AnimationGroup(*anims)
+
+
+def _rated(anim: Animation, rate) -> Animation:
+    anim.rate_func = rate
+    return anim
+
+
+def build(node: Node, world=None) -> GridBlock:
+    return GridBlock(node)
+
+
+def morph(old: GridBlock, new: GridBlock, sources=None) -> Animation | None:
+    return _grid(old, new) if old.shape == new.shape else None
+
+
+def sources(new: GridBlock, old) -> list:
+    """The cells being looked at: the marked cell, and the cells of lit rows and columns."""
+    rows, cols = new.shape
+    hr, hc = new.lit
+    looked = ({new.mark_index} if new.mark_index is not None else set()) | \
+        {r * cols + c for r in range(rows) for c in range(cols) if r in hr or c in hc}
+    # the cells on screen when they show the same numbers (the new block is not drawn yet)
+    src = old if isinstance(old, GridBlock) and old.shape == new.shape and old.values == new.values else new
+    return [(new.values[k], src.cells[k][1]) for k in sorted(looked) if str(new.values[k]).strip()]

@@ -1,0 +1,1 @@
+| `array` | a row of cells with index labels (no values: an empty slot, e.g. an empty stack) | `values="3,8,1"`, `highlight="2"`, `dim="0-1"`, `pointers="i:0,j:6"` (named arrows above cells), `index="0"` (first index label, or `none`), `size` |

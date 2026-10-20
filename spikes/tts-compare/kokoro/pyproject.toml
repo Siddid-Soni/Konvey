@@ -1,0 +1,11 @@
+# Trial env for Kokoro-82M, kept apart from Konvey's .venv.
+[project]
+name = "tts-trial-kokoro"
+version = "0"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "kokoro==0.9.4",
+    "misaki[en]>=0.9.4",
+    "soundfile>=0.13",
+    "pip",
+]

@@ -1,0 +1,5 @@
+out/
+frames/
+*.log
+*.layout.html
+__pycache__/

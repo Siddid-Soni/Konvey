@@ -1,0 +1,9 @@
+# Trial env for KittenTTS 2 (kittenml), kept apart from Konvey's .venv.
+[project]
+name = "tts-trial-kitten"
+version = "0"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "kittenml==0.9.4",
+    "soundfile>=0.13",
+]

@@ -1,0 +1,54 @@
+{
+ "_note": "Lines picked by ear (user, 2026-10-18), numbered as on out/voice-lines/index.html (longest first), in order.",
+ "paige-all": [
+  "paige",
+  [
+   1,
+   3,
+   6,
+   8,
+   17,
+   42
+  ]
+ ],
+ "paige-mono": [
+  "paige",
+  [
+   1
+  ]
+ ],
+ "paige-short": [
+  "paige",
+  [
+   3,
+   6,
+   17
+  ]
+ ],
+ "dynamo-all": [
+  "dynamo",
+  [
+   1,
+   2,
+   3,
+   12,
+   13,
+   18,
+   8,
+   5
+  ]
+ ],
+ "dynamo-mono": [
+  "dynamo",
+  [
+   1
+  ]
+ ],
+ "dynamo-short": [
+  "dynamo",
+  [
+   1,
+   2
+  ]
+ ]
+}

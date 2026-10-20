@@ -1,0 +1,133 @@
+<!-- Spike A: "The average shadow of a cube" (spikes/STORYBOARD.md).
+     Each <beat> is the screen at the END of that beat. Same id = same object. -->
+<beats>
+
+<!-- 1 · Hook -->
+<beat t="2.6" hold="1.6" letterbox="open" style="padding: 0.75u 0.8u" class="center">
+  <camera theta="-10" phi="88" zoom="0.8" target-z="1.2"></camera>
+  <div class="col center" style="gap: 0.3u; flex: 1">
+    <h1 id="title" size="72">What is the <em>average shadow</em> of a cube?</h1>
+    <text id="sub" color="#9ca3af" wrap="0">Tumble it at random, measure its shadow, average.</text>
+  </div>
+</beat>
+
+<!-- 2 · Setup: floor, cube, light, shadow; camera swoops up -->
+<beat t="2.4" hold="2.4" drift="6" style="padding: 0.75u 0.8u">
+  <camera theta="-35" phi="62" zoom="1.0" focus="hole" target-z="1.4"></camera>
+  <world><ground></ground><cube rot="face" z="2.4"></cube><shadow></shadow><rays></rays></world>
+  <div class="row" style="align-items: center"><h3 id="title" size="30">The <em>average shadow</em> of a cube</h3></div>
+  <div id="hole" class="grow"></div>
+  <caption id="cap">Light shines <em>straight down</em>. The shadow is the cube flattened onto the floor.</caption>
+</beat>
+
+<!-- 3 · Face-on -->
+<beat t="1.6" hold="2.6" drift="8" style="padding: 0.75u 0.8u">
+  <camera theta="-45" phi="58" focus="hole"></camera>
+  <world><ground></ground><cube rot="face" z="2.4"></cube><shadow></shadow><rays></rays></world>
+  <div class="row" style="align-items: center"><h3 id="title" size="30">The <em>average shadow</em> of a cube</h3></div>
+  <div class="row grow" style="gap: 0.4u">
+    <div id="hole" class="grow"></div>
+    <div id="card" class="col card" style="width: 4.4u; padding: 0.35u; gap: 0.25u; align-self: center">
+      <h3 id="case">Face-on</h3>
+      <tex id="formula" size="48">A = s^2 = 1</tex>
+      <value id="area" bind="shadow.area" label="shadow area"></value>
+    </div>
+  </div>
+  <caption id="cap">Face-on, the shadow is a <em>square</em>: area 1 (side s = 1).</caption>
+</beat>
+
+<!-- 4 · Corner-on: square morphs into hexagon, readout climbs to 1.73 -->
+<beat t="3.0" hold="2.6" drift="14" style="padding: 0.75u 0.8u">
+  <camera theta="-60" phi="55" focus="hole"></camera>
+  <world><ground></ground><cube rot="corner" z="2.6"></cube><shadow></shadow><rays></rays></world>
+  <div class="row" style="align-items: center"><h3 id="title" size="30">The <em>average shadow</em> of a cube</h3></div>
+  <div class="row grow" style="gap: 0.4u">
+    <div id="hole" class="grow"></div>
+    <div id="card" class="col card" style="width: 4.4u; padding: 0.35u; gap: 0.25u; align-self: center">
+      <h3 id="case">Corner-on</h3>
+      <tex id="formula" size="48">A = \sqrt{3} \approx 1.73</tex>
+      <value id="area" bind="shadow.area" label="shadow area" emphasize="flash"></value>
+    </div>
+  </div>
+  <caption id="cap">Tip it onto a corner: a <em>hexagon</em>, √3 times bigger.</caption>
+</beat>
+
+<!-- 5 · Why: faces tinted by which way they face; camera tilts toward top-down -->
+<beat t="2.4" hold="4.4" drift="10" style="padding: 0.75u 0.8u">
+  <camera theta="-50" phi="30" zoom="1.05" focus="hole"></camera>
+  <world><ground></ground><cube rot="20,35,10" z="2.4" tint="by-light"></cube><shadow></shadow></world>
+  <div class="row" style="align-items: center"><h3 id="title" size="30">Why the area changes</h3></div>
+  <div class="row grow" style="gap: 0.4u">
+    <div id="hole" class="grow"></div>
+    <div id="card" class="col card" style="width: 5.4u; padding: 0.35u; gap: 0.3u; align-self: center">
+      <tex id="formula" size="42">\text{shadow} = \tfrac{1}{2}\sum_{\text{faces}} A_i\,|\cos\theta_i|</tex>
+      <text id="up" size="26" wrap="34"><em>Up faces</em> cover the shadow once.</text>
+      <text id="down" size="26" wrap="34" color="#c4b5fd">Down faces cover it again, so halve it.</text>
+      <value id="area" bind="shadow.area" label="shadow area"></value>
+    </div>
+  </div>
+  <caption id="cap">Each face casts a tilted copy of itself, area A·|cos θ|.</caption>
+</beat>
+
+<!-- 6 · Tumble: random orientations, running mean converges to 1.5 -->
+<beat t="2.0" hold="8.0" drift="25" style="padding: 0.75u 0.8u">
+  <camera theta="-30" phi="60" zoom="1.0" focus="hole"></camera>
+  <world><ground></ground><cube z="2.4" tumble="10" samples="5000" seed="7"></cube><shadow></shadow><rays></rays></world>
+  <div class="row" style="align-items: center"><h3 id="title" size="30">Tumble it at random</h3></div>
+  <div class="row grow" style="gap: 0.4u">
+    <div id="hole" class="grow"></div>
+    <div id="card" class="col card" style="width: 4.6u; padding: 0.35u; gap: 0.25u; align-self: center">
+      <value id="area" bind="shadow.area" label="this shadow"></value>
+      <value id="n" bind="tumble.n" label="throws" digits="0"></value>
+      <value id="mean" bind="tumble.mean" label="mean shadow" emphasize="flash"></value>
+      <tex id="formula" size="40">\langle |\cos\theta| \rangle = \tfrac{1}{2}</tex>
+    </div>
+  </div>
+  <caption id="cap">Over all directions <em>|cos θ| averages to ½</em>, so the mean → 1.5.</caption>
+</beat>
+
+<!-- 7 · Payoff, part 1: cinematic wipe, centre formula -->
+<beat transition="wipe" hold="2.2" style="padding: 0.75u 0.8u" class="center">
+  <camera theta="-30" phi="60" zoom="0.6" focus="hole2"></camera>
+  <world><ground></ground><cube z="2.4" rot="corner"></cube><shadow></shadow></world>
+  <div id="hole2" style="height: 0.1u; width: 0.1u; position: absolute; left: 50%; top: 80%"></div>
+  <div class="col center" style="gap: 0.45u; flex: 1">
+    <tex id="payoff" size="64">\langle\text{shadow}\rangle = \tfrac{1}{2}\cdot\tfrac{1}{2}\sum_i A_i</tex>
+  </div>
+</beat>
+
+<!-- 8 · Payoff, part 2: formula morphs, kinetic headline -->
+<beat t="2.0" hold="2.8" style="padding: 0.75u 0.8u" class="center">
+  <camera theta="-20" phi="60" zoom="0.6" focus="hole2"></camera>
+  <world><ground></ground><cube z="2.4" rot="corner"></cube><shadow></shadow></world>
+  <div id="hole2" style="height: 0.1u; width: 0.1u; position: absolute; left: 50%; top: 80%"></div>
+  <div class="col center" style="gap: 0.45u; flex: 1">
+    <tex id="payoff" size="64" morph="match">\langle\text{shadow}\rangle = \tfrac{1}{4}\,\text{surface area} = \tfrac{1}{4}\cdot 6 = 1.5</tex>
+    <h2 id="headline">One <em>quarter</em> of the surface area.</h2>
+  </div>
+</beat>
+
+<!-- 9 · Generalize: cube morphs into a sphere -->
+<beat t="3.2" hold="3.0" drift="20" style="padding: 0.75u 0.8u">
+  <camera theta="-40" phi="60" zoom="1.0" focus="hole"></camera>
+  <world><ground></ground><cube z="2.4" shape="sphere"></cube><shadow></shadow><rays></rays></world>
+  <div class="row" style="align-items: center"><h3 id="title" size="30">Cauchy's formula</h3></div>
+  <div class="row grow" style="gap: 0.4u">
+    <div id="hole" class="grow"></div>
+    <div id="card" class="col card" style="width: 4.6u; padding: 0.35u; gap: 0.3u; align-self: center">
+      <h3 id="case">Sphere</h3>
+      <tex id="formula" size="44">\pi r^2 = \tfrac{1}{4}\cdot 4\pi r^2</tex>
+    </div>
+  </div>
+  <caption id="cap">True for <em>every convex shape</em>: average shadow = ¼ surface area.</caption>
+</beat>
+
+<!-- 10 · End card -->
+<beat t="2.0" hold="1.6" letterbox="close" style="padding: 0.75u 0.8u" class="center">
+  <camera theta="-10" phi="70" zoom="0.8" focus="end"></camera>
+  <world><cube z="2.4" shape="sphere"></cube></world>
+  <div id="end" style="height: 0.1u; width: 0.1u; position: absolute; left: 50%; top: 50%"></div>
+  <h1 id="summary" size="60">Average shadow = <em>¼ × surface area</em></h1>
+</beat>
+
+</beats>

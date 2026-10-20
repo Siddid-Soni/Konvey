@@ -1,0 +1,59 @@
+"""``<bars>``: bars from a zero baseline; negatives point down (manimgl)."""
+
+from __future__ import annotations
+
+from manimlib import *  # noqa: F401,F403
+
+from ...tree import BeatError, Node
+from ...theme import current
+from ..base import data_list, index_set, _num, _fmt, _label, Block, UNKNOWN
+
+
+class BarsBlock(Block):
+    """Bars from a zero baseline: positive values up, negative values down."""
+
+    tag = "bars"
+
+    def __init__(self, node: Node):
+        th = current()
+        labels = data_list(node, "labels")
+        # "?" (or null) is a value not known yet: an empty bar with a "?" over it, which grows
+        # to its value in the beat that works it out.
+        raw = data_list(node, "values")
+        unknown = {i for i, v in enumerate(raw) if v is None or str(v).strip().lower() in UNKNOWN | {"?", ""}}
+        values = [0.0 if i in unknown else _num(v) for i, v in enumerate(raw)]
+        if len(labels) != len(values):
+            raise BeatError(f"<bars id={node.id}>: {len(labels)} labels but {len(values)} values")
+        size = float(node.attrs.get("size", 28))
+        fmt, suffix = node.attrs.get("fmt"), node.attrs.get("suffix", "")
+        color = th.color(node.attrs.get("color"), "c1")
+        hot = index_set(node.attrs.get("highlight", ""), len(values), "highlight")
+        max_h, bar_w = float(node.attrs.get("h", 3.2)), 0.8
+        lo, hi = min(0.0, *values), max(0.0, *values)
+        unit = max_h / ((hi - lo) or 1)
+        cat = [_label(lab, size, th.muted) for lab in labels]
+        val = [_label("?", size, th.muted) if i in unknown else _label(_fmt(v, fmt) + suffix, size, th.ink)
+               for i, v in enumerate(values)]
+        buff = max(0.3, max(m.get_width() for m in cat + val) - bar_w + 0.25)
+        self.bars, self.labels, self.value_labels = VGroup(), VGroup(*cat), VGroup(*val)
+        for i, v in enumerate(values):
+            x = i * (bar_w + buff)
+            height = max(abs(v) * unit, 1e-3)
+            bar = Rectangle(width=bar_w, height=height).set_stroke(width=0)
+            bar.set_fill(th.accent if i in hot else color, 0.9 if (not hot or i in hot) else 0.35)
+            bar.move_to([x, (height / 2) * (1 if v >= 0 else -1), 0])
+            self.bars.add(bar)
+            if v >= 0:
+                val[i].next_to(bar, UP, buff=0.1)
+                cat[i].next_to([x, 0, 0], DOWN, buff=0.15)
+            else:
+                val[i].next_to(bar, DOWN, buff=0.1)
+                cat[i].next_to([x, 0, 0], UP, buff=0.15)
+        left, right = self.bars.get_left()[0] - 0.2, self.bars.get_right()[0] + 0.2
+        self.baseline = Line([left, 0, 0], [right, 0, 0]).set_stroke(th.muted, 1.5)
+        super().__init__(self.bars, self.baseline, self.labels, self.value_labels)
+        self.set_content(node, "labels", "values")
+
+
+def build(node: Node, world=None) -> BarsBlock:
+    return BarsBlock(node)

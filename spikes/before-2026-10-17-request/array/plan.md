@@ -1,0 +1,1 @@
+| `array` | `{"values": [...], "pointers"?: {"name": index}, "highlight"?: [indices], "dim"?: [indices], "index"?: 1 (first index label, or "none")}` | items in order, positions, a pass through a list |

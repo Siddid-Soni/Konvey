@@ -1,0 +1,15 @@
+{
+ "_note": "The four test lines with every tag that suits a cheerful explainer (2026-10-18). Higgs: sentence-level tags (emotion/style/speed/pitch/expressive) start each sentence, pause and sfx tags inline, sfx followed by its sound with no space. Kitten: one leading [emotion] per line, <event> inline, (((emphasis))). Measured: '...' next to Higgs tags makes it stop early or loop, so no ellipses; Kitten reads <laugh> aloud, so it is dropped.",
+ "higgs": [
+  "<|emotion:enthusiasm|><|prosody:expressive_high|><|sfx:cough|>Ahem, okay, here's a puzzle. <|prosody:pause|> <|emotion:contentment|>You roll two dice. <|emotion:confusion|><|prosody:speed_slow|>What's the chance their sum is seven? <|prosody:long_pause|>",
+  "<|emotion:determination|><|prosody:speed_fast|>Let's lay out every possible pair on a grid: <|prosody:pause|> six by six, thirty-six squares in all. <|prosody:pause|>",
+  "<|emotion:contemplation|><|prosody:speed_slow|><|sfx:humming|>Hmm, now look at this diagonal. <|prosody:pause|> <|emotion:surprise|>Six of those squares add up to seven. <|emotion:awe|><|prosody:pitch_low|>Six out of thirty-six. <|prosody:long_pause|> <|emotion:elation|><|prosody:pitch_high|><|sfx:laughter|>Haha, that's one in six! <|prosody:long_pause|>",
+  "<|style:whispering|><|emotion:amusement|>And here's the surprising part: <|prosody:pause|> <|emotion:pride|><|prosody:expressive_high|>no other sum shows up that often."
+ ],
+ "kitten": [
+  "[excited] <um> Okay, here's a puzzle. You roll (((two))) dice. What's the chance their sum is seven? <pause>",
+  "[contemplative] Let's lay out every possible pair on a grid: <pause> six by six, (((thirty-six))) squares in all. <pause>",
+  "[surprised] <gasp> Now look at this diagonal. Six of those squares add up to seven. Six out of thirty-six... that's (((one in six)))! <pause>",
+  "[joyful] And here's the surprising part: no other sum shows up (((that))) often."
+ ]
+}

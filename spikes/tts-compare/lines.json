@@ -1,0 +1,6 @@
+[
+  "Okay, here's a puzzle. You roll two dice. What's the chance their sum is seven?",
+  "Let's lay out every possible pair on a grid: six by six, thirty-six squares in all.",
+  "Now look at this diagonal. Six of those squares add up to seven. Six out of thirty-six... that's one in six!",
+  "And here's the surprising part: no other sum shows up that often."
+]

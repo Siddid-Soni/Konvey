@@ -1,0 +1,156 @@
+"""``<vector>``: numbers in square brackets, a column or a row, with an optional name (manimgl).
+
+Between beats an entry that keeps its number stays still; a changed entry flies in from a lit
+cell elsewhere on screen when it takes that cell's number (``sources``), otherwise the old number
+slides up and out while the new one slides in; the brackets stretch when entries are added or
+dropped, and light up once when the vector has changed."""
+
+from __future__ import annotations
+
+import numpy as np
+
+from manimlib import *  # noqa: F401,F403
+
+from ...theme import current
+from ...tree import BeatError, Node
+from ..base import Block, _label
+from . import MAX_ENTRIES, entries_of
+
+ROW_H = 0.58           # one entry of a column, per unit of size (size 30 = 1 unit)
+GAP = 0.36             # between the entries of a row
+EARLY = squish_rate_func(smooth, 0.0, 0.45)
+LATE = squish_rate_func(smooth, 0.4, 1.0)
+
+
+def bracket(h: float, w: float, side: int, color: str, u: float) -> VMobject:
+    """One square bracket, ``side`` -1 (left) or 1 (right), around content ``w`` wide, ``h`` tall."""
+    lip = 0.1 * u * side
+    x = side * w / 2
+    m = VMobject().set_points_as_corners([[x - lip, h / 2, 0], [x, h / 2, 0], [x, -h / 2, 0], [x - lip, -h / 2, 0]])
+    return m.set_stroke(color, 2.5 * u ** 0.5).set_fill(opacity=0)
+
+
+def _num(text: str) -> str:
+    return text.replace("-", "−") if text[:1] == "-" else text
+
+
+class VectorBlock(Block):
+    tag = "vector"
+
+    def __init__(self, node: Node):
+        th = current()
+        a = node.attrs
+        where = f"<vector id={node.id}>"
+        vals = entries_of(a.get("values", ""))
+        if not vals:
+            raise BeatError(f'{where} needs values="0.9,-0.4,0.2"')
+        if len(vals) > MAX_ENTRIES:
+            raise BeatError(f"{where} has {len(vals)} entries; at most {MAX_ENTRIES} stay readable")
+        row = a.get("orient", "column").strip().lower() == "row"
+        size = float(a.get("size", 30))
+        u = size / 30
+        self.unit, self.values, self.row = u, vals, row
+        try:
+            lit = {int(i) for i in entries_of(a.get("highlight", ""))}
+        except ValueError as e:
+            raise BeatError(f'{where} highlight="{a.get("highlight")}": entry positions 0..{len(vals) - 1}') from e
+        self.lit = sorted(i for i in lit if 0 <= i < len(vals))
+        ink = th.color(a.get("color"), "ink")
+        self.entries = VGroup()
+        for i, v in enumerate(vals):
+            e = _label(_num(v), size, th.accent if i in lit else ink)
+            e.label_text = v
+            self.entries.add(e)
+        ew = max(e.get_width() for e in self.entries)
+        if row:
+            x = 0.0
+            for e in self.entries:
+                e.move_to([x + e.get_width() / 2, 0, 0])
+                x += e.get_width() + GAP * u
+            self.entries.set_x(0)
+            w, h = self.entries.get_width() + 0.3 * u, ROW_H * u + 0.12 * u
+        else:
+            for i, e in enumerate(self.entries):
+                e.move_to([0, -(i + 0.5) * ROW_H * u, 0])
+            self.entries.set_y(0)
+            w, h = ew + 0.36 * u, len(vals) * ROW_H * u + 0.16 * u
+        self.marks = VGroup()            # a soft band behind the lit entries
+        for i in self.lit:
+            e = self.entries[i]
+            band = RoundedRectangle(e.get_width() + 0.2 * u if row else w - 0.12 * u, ROW_H * u * 0.9,
+                                    corner_radius=0.08 * u)
+            band.set_fill(th.accent, 0.16).set_stroke(width=0).move_to([e.get_x() if row else 0, e.get_y(), 0])
+            self.marks.add(band)
+        self.brackets = VGroup(bracket(h, w, -1, th.muted, u), bracket(h, w, 1, th.muted, u))
+        self.name = VGroup()
+        label = a.get("label", "").strip()
+        if label:
+            name = _label(label, size, ink)
+            eq = _label("=", size, th.muted)
+            self.name = VGroup(name, eq)
+            eq.next_to(self.brackets, LEFT, buff=0.22 * u)
+            name.next_to(eq, LEFT, buff=0.18 * u)
+        super().__init__(self.marks, self.brackets, self.entries, self.name)
+        self.set_content(node, "values", "label", "orient", "highlight", "color", "size")
+
+
+def build(node: Node, world=None) -> VectorBlock:
+    return VectorBlock(node)
+
+
+def sources(new: VectorBlock, old) -> list:
+    """Lit entries are the ones being looked at: another label may take its number from them."""
+    return [(new.values[i], new.entries[i]) for i in new.lit]
+
+
+def _slide(a: Mobject, b: Mobject, up: np.ndarray) -> list[Animation]:
+    d = 0.35 * up
+    return [FadeOut(a, shift=d, rate_func=EARLY), FadeIn(b, shift=d, rate_func=LATE)]
+
+
+def morph(old: VectorBlock, new: VectorBlock, sources=None) -> Animation:
+    """Kept entries move with the brackets, changed ones fly in from a lit cell elsewhere or slide
+    to their new number; added entries grow in, dropped ones fade; the brackets flash once when
+    anything changed (the cue that the vector was updated)."""
+    from ...motion import _fly, _num as parse   # manimgl side, like this module
+
+    anims: list[Animation] = [Transform(old.brackets, new.brackets)]
+    if len(old.marks) == len(new.marks):
+        anims.append(Transform(old.marks, new.marks))
+    else:          # the lit bands go with the old numbers and come with the new ones
+        anims += [FadeOut(old.marks, rate_func=EARLY), FadeIn(new.marks, rate_func=LATE)]
+    anims.append(Transform(old.name, new.name) if len(old.name) == len(new.name) else FadeTransform(old.name, new.name))
+    changed = False
+    for i in range(max(len(old.values), len(new.values))):
+        a = old.entries[i] if i < len(old.values) else None
+        b = new.entries[i] if i < len(new.values) else None
+        if a is None:
+            anims.append(FadeIn(b, scale=0.6, rate_func=LATE))
+            changed = True
+        elif b is None:
+            anims.append(FadeOut(a, scale=0.6, rate_func=EARLY))
+            changed = True
+        elif old.values[i] == new.values[i]:
+            anims.append(Transform(a, b))
+        else:
+            changed = True
+            n = parse(new.values[i])
+            src = (sources or {}).get(n[1]) if n else None
+            if src is not None and src not in old.entries:
+                anims += [FadeOut(a, rate_func=EARLY), _fly(src, b)]
+            else:
+                anims += _slide(a, b, UP)
+    if changed:
+        anims.append(_flash(new.brackets))
+    return AnimationGroup(*anims)
+
+
+def _flash(brackets: VGroup) -> Animation:
+    """The brackets light up once, after the new entries are in."""
+    th = current()
+    glow = brackets.copy().set_stroke(th.accent, opacity=0).fix_in_frame()
+
+    def upd(m, t):
+        k = float(np.clip((t - 0.7) / 0.3, 0, 1))
+        m.set_stroke(th.accent, opacity=float(np.sin(PI * k)))
+    return UpdateFromAlphaFunc(glow, upd, remover=True)
