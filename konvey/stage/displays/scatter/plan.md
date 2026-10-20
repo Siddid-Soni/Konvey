@@ -1,0 +1,1 @@
+| `scatter` | `{"points": [[x, y], …], "groups"?: [0, 1, …] (one per point, from 0), "centroids"?: [[x, y], …] (one per group), "links"?: true, "lines"?: [[a, b]] (y = a·x + b), "highlight"?: [point indices]}` | data points on a plane: clusters and their centres (k-means), a fitted line, a class boundary. Same id and points every beat; change groups/centroids/lines step by step |

@@ -1,0 +1,1 @@
+| `bars` | bar chart from a zero baseline (negative values point down) | `labels="a,b,c"`, `values="1,-2,3"`, `suffix`, `fmt` (default 1,048,576 / 0.53; or e.g. `{:.1f}`), `highlight="1"` (indices), `color`, `h` |

@@ -1,0 +1,13 @@
+<beats>
+<beat vo="A ripple spreads out from the point where the stone went in." style="padding: 0.5u 0.6u; gap: 0.15u" t="0.4" hold="0.5">
+  <h2 id="title">A ripple on still water</h2>
+  <tex id="eq">z = \frac{\sin r}{r}, \quad r = \sqrt{x^2 + y^2}</tex>
+  <div id="view" class="grow"></div>
+  <world>
+    <ground></ground>
+    <surface id="pond" fn="2*sin(sqrt(x^2 + y^2 + 0.01))/sqrt(x^2 + y^2 + 0.01)" x="-7,7" y="-7,7"></surface>
+    <point id="cork" on="pond" at="4.5,0"></point>
+  </world>
+  <camera focus="view" theta="-35" phi="62"></camera>
+</beat>
+</beats>

@@ -1,0 +1,1 @@
+| `arrow` | an arrow from one thing on screen to another, drawn between them wherever they are (an item to the place it goes, a name to what it names); takes no room in the layout | `from`, `to` (an id, or `id>part` for one group of a collection: `bins>left`), `label`, `color` |

@@ -1,0 +1,977 @@
+"""``<system>``: parts joined by wires, items sent between them (manimgl)."""
+
+from __future__ import annotations
+
+import json
+
+import numpy as np
+
+from manimlib import *  # noqa: F401,F403
+
+from ...tree import BeatError, Node
+from ...theme import current
+from ..base import LIT_W, lit_color, _label, Block, _own_layer
+from . import FREE_LAYOUTS, LAYOUTS, link_pairs, system_holds, system_place, system_tiers
+
+
+SYSTEM_ATTRS = {"parts", "holds", "highlight", "notes", "shapes", "wires", "layout", "links", "w", "h", "size", "_room",
+                "lit-color"}
+ITEM_ATTRS = {"id", "in", "from", "text", "lines", "style", "color"}
+ITEM_STYLES = ("slot", "pill", "card", "chip")
+PART_SHAPES = ("box", "cylinder", "circle", "bin")
+
+
+def _pairs(raw: str, parts: list[str], where: str, what: str) -> dict[str, str]:
+    """``"store:cylinder; client:box"`` -> {part: value}."""
+    by_key = {p.lower(): p for p in parts}
+    out = {}
+    for chunk in (c.strip() for c in raw.split(";") if c.strip()):
+        name, sep, val = chunk.partition(":")
+        if not sep or name.strip().lower() not in by_key:
+            raise BeatError(f'{where} "{chunk}": write part:{what} with a part from parts="{",".join(parts)}"')
+        out[by_key[name.strip().lower()]] = val.strip()
+    return out
+
+
+def _wrap_fit(text: str, size: float, color: str, w: float, h: float, where: str,
+              floor: float = 0.45) -> Mobject:
+    """Text fitted into w x h: one line, or two when that reads larger; too small is an error."""
+    def fitted(t):
+        mob = _label(t, size, color)
+        return mob, min(1.0, w / max(mob.get_width(), 1e-6), h / max(mob.get_height(), 1e-6))
+    mob, k = fitted(text)
+    words = text.split()
+    if k < 0.8 and len(words) > 1 and "\\" not in text:
+        cut = min(range(1, len(words)), key=lambda i: abs(len(" ".join(words[:i])) - len(" ".join(words[i:]))))
+        two, k2 = fitted(" ".join(words[:cut]) + "\n" + " ".join(words[cut:]))
+        if k2 > k:
+            mob, k = two, k2
+    if k < floor:
+        raise BeatError(f'{where}: "{text}" is too long to read there; shorten it (or split it into lines= of '
+                        "a card)")
+    return mob.scale(k)
+
+
+class PlacesBlock(Block):
+    """``<system parts="client,balancer,a|b|c" holds="store:3|5|8" shapes="store:cylinder"
+    wires="client-balancer:HTTP" notes="store:found" highlight="store:5; worker">`` with ``<item>``
+    children. Parts are tiers left to right (``a|b|c`` = one tier drawn as a column, a fan-out),
+    joined by wires between neighbouring tiers, laid out by the renderer, so every beat and scene
+    draws the same system in the same place. ``holds`` = a part's plain contents (slots). Each
+    ``<item id in|on text lines style color>`` is a thing of its own (a request, a reply, a job)
+    placed in a part (under its slots) or on a wire; between beats an item keeps its id and travels
+    to its new place: out of its part through the side facing the other, along the wire, in."""
+
+    tag = "places"
+
+    SLOT_H, GAP = 0.5, 0.08
+
+    def __init__(self, node: Node):
+        try:
+            self._build(node, reserve_ok=True)
+        except BeatError:
+            if not node.attrs.get("_room"):
+                raise
+            # the room kept for other beats of the scene does not fit beside this beat's contents:
+            # this beat is drawable on its own, so it is drawn on its own rather than failing
+            self._build(node, reserve_ok=False)
+
+    def _build(self, node: Node, reserve_ok: bool) -> None:
+        th = current()
+        where = f"<places id={node.id}>"
+        extra = set(node.attrs) - SYSTEM_ATTRS - {"id", "enter", "exit", "emphasize"}
+        if extra:
+            raise BeatError(f"{where}: unknown attributes {sorted(extra)}; allowed {sorted(SYSTEM_ATTRS)} "
+                            "(things that move are <item> children)")
+        tiers = system_tiers(node.attrs.get("parts", ""))
+        parts = [p for t in tiers for p in t]
+        layout = node.attrs.get("layout", "").strip().lower()
+        if layout not in LAYOUTS:
+            raise BeatError(f'{where} layout="{layout}": use "ring" (peers on a circle, each wired to every '
+                            'other), "column" (top to bottom), "grid" (rows of places) or leave it out (left to right)')
+        ring = layout == "ring"
+        free = layout in FREE_LAYOUTS
+        self.ring, self.layout = ring, ("" if layout == "row" else layout)
+        if free:
+            if any(len(t) > 1 for t in tiers) or not 2 <= len(tiers) <= 9:
+                raise BeatError(f'{where} layout="{layout}" needs parts="a,b,c" (2 to 9 places, no "|": the layout '
+                                "places them)")
+        elif ring:
+            groups = [t for t in tiers if len(t) > 1]
+            if len(groups) != 1 or not 3 <= len(groups[0]) <= 8 or len(tiers) > 3:
+                raise BeatError(f'{where} layout="ring" needs one group of 3 to 8 peers, e.g. '
+                                'parts="client,s1|s2|s3|s4|s5" (the peers go on the circle, a part before or '
+                                "after them sits beside it)")
+        elif not (2 <= len(tiers) <= 5 and len(parts) <= 8 and max(len(t) for t in tiers) <= 4):
+            raise BeatError(f'{where} needs parts="a,b,c" (2 to 5 tiers left to right; a|b|c stacks up to 4 '
+                            "parts in one tier; at most 8 parts)")
+        if len({p.lower() for p in parts}) != len(parts):
+            raise BeatError(f'{where} parts="{node.attrs["parts"]}" names a part twice')
+        T = len(tiers)
+        stacked = any(len(t) > 1 for t in tiers)
+        w = float(node.attrs.get("w", 10 if T == 2 else 12 if T == 3 else 13))
+        h = float(node.attrs.get("h", 5.2 if stacked else 4.2))
+        pairs = link_pairs(node.attrs.get("links", ""), parts, f"{where} links=")
+        self.links_spec = node.attrs.get("links", "").strip().lower()
+        # never too short for its tiers: a stacked part needs a name row and one row of contents
+        tallest = max(len(t) for t in tiers)
+        h = max(h, 1.9 if tallest == 1 else tallest * 1.55 + (tallest - 1) * 0.18)
+        # a ring is drawn smaller (its peers stack on three levels), so its words start larger
+        size = float(node.attrs.get("size", 34 if ring else 28))
+        holds = system_holds(node.attrs.get("holds", ""), parts, f"{where} holds=")
+        hot: set[tuple[str, str]] = set()
+        hot_parts: set[str] = set()
+        lc = lit_color(node)
+        by_key = {p.lower(): p for p in parts}
+        hl_items = []
+        for chunk in (c.strip() for c in node.attrs.get("highlight", "").split(";") if c.strip()):
+            if ":" not in chunk and chunk.lower() in by_key:
+                hot_parts.add(by_key[chunk.lower()])          # a whole part
+            else:
+                hl_items.append(chunk)
+        for part, items in system_holds("; ".join(hl_items), parts, f"{where} highlight=").items():
+            for it in items:
+                if it not in holds.get(part, []):
+                    raise BeatError(f'{where} highlight="{part}:{it}": {part} does not hold "{it}" '
+                                    f'(highlight="{part}" lights the whole part)')
+                hot.add((part, it))
+        notes = _pairs(node.attrs.get("notes", ""), parts, f"{where} notes=", "word")
+        shapes = _pairs(node.attrs.get("shapes", ""), parts, f"{where} shapes=", "shape")
+        for p, sh in shapes.items():
+            if sh not in PART_SHAPES:
+                raise BeatError(f'{where} shapes="{p}:{sh}": use one of {", ".join(PART_SHAPES)}')
+        wire_labels = {}
+        for chunk in (c.strip() for c in node.attrs.get("wires", "").split(";") if c.strip()):
+            pair, sep, text = chunk.partition(":")
+            if not sep:
+                raise BeatError(f'{where} wires="{chunk}": write a-b:label')
+            if layout in FREE_LAYOUTS or node.attrs.get("links", "").strip():
+                a_, _, b_ = (x.strip() for x in pair.partition("-"))
+            else:
+                a_, b_ = system_place("", pair, tiers, f"{where} wires=")[1].split("-")
+            wire_labels[frozenset((a_, b_))] = text.strip()
+
+        name_h, note_h, vgap = 0.45, 0.5, 0.18
+        if ring:
+            g = 1.2
+            w, h = _ring_geometry(self, tiers, name_h)
+        elif free:
+            g = 1.2
+            # each cell as tall as the fullest place needs, in any beat of the scene (_room)
+            held = {p: len(holds.get(p, [])) + sum(1 for c in node.children
+                                                    if c.attrs.get("in", "").strip().lower() == p.lower())
+                    for p in parts}
+            long_text = any(len(t) > 14 for v in holds.values() for t in v)
+            for chunk in (c.strip() for c in (node.attrs.get("_room", "") if reserve_ok else "").split(";") if c.strip()):
+                name, _, nums = chunk.rpartition(":")
+                ns, _, ni = nums.partition("/")
+                if name in held and ns.isdigit() and ni.isdigit():
+                    held[name] = max(held[name], int(ns) + int(ni))
+            w, h = _free_geometry(self, parts, layout, name_h, max(held.values(), default=0), long_text)
+        else:
+            # geometry: tiers are columns; a tier of k parts splits its column into k cells
+            # a column of several parts gets more width than a single part (its parts are short)
+            weight = [1.35 if len(t) > 1 else 1.0 for t in tiers]
+            g = min(1.8, max(0.7, 0.4 * w / T))
+            unit = min(3.2 / max(1.0, min(weight)), (w - g * (T - 1)) / sum(weight))
+            widths = [min(3.2 * wt, unit * wt) for wt in weight]
+            g = (w - sum(widths)) / (T - 1)
+            self.geom: dict[str, dict] = {}
+            x_left = -w / 2
+            for i, tier in enumerate(tiers):
+                bw = widths[i]
+                x = x_left + bw / 2
+                x_left += bw + g
+                k = len(tier)
+                if k == 1:
+                    top, bot = h / 2 - note_h, -h / 2 + name_h
+                    self.geom[tier[0]] = {"tier": i, "x": x, "top": top, "bot": bot, "note_at": "above", "bw": bw}
+                    continue
+                cell = (h - (k - 1) * vgap) / k
+                for j, p in enumerate(tier):
+                    ctop = h / 2 - j * (cell + vgap)
+                    self.geom[p] = {"tier": i, "x": x, "top": ctop, "bot": ctop - cell + name_h, "note_at": "name",
+                                    "bw": bw}
+        for p, gm in self.geom.items():
+            gm["y"] = (gm["top"] + gm["bot"]) / 2
+        color_of = {p: th.palette[i % len(th.palette)] for i, p in enumerate(parts)}
+        self.parts, self.tiers, self.width_, self.height_ = parts, tiers, w, h
+
+        frame = Rectangle(width=w, height=h).set_stroke(opacity=0).set_fill(opacity=0)
+        self.boxes, self.wires, self.wire_labels = VGroup(), VGroup(), VGroup()
+        self.box_of: dict[str, Mobject] = {}     # each part's outline, wherever the block is placed
+        room_top, room_bot = {}, {}
+        for p in parts:
+            gm, c = self.geom[p], color_of[p]
+            bw = gm["bw"]
+            lit = p in hot_parts
+            stroke = (lc, LIT_W) if lit else (c, 2.5)
+            if shapes.get(p) == "cylinder":
+                rx, ry = bw / 2, min(0.2, (gm["top"] - gm["bot"]) / 10)
+                ts = np.linspace(0, PI, 24)
+                top_y, bot_y = gm["top"] - ry, gm["bot"] + ry
+                outline = ([[gm["x"] + rx * np.cos(t), top_y + ry * np.sin(t), 0] for t in ts]
+                           + [[gm["x"] - rx * np.cos(t), bot_y - ry * np.sin(t), 0] for t in ts])
+                body = VMobject().set_points_as_corners([*outline, outline[0]])
+                body.set_stroke(*stroke).set_fill(c, 0.12)
+                rim = VMobject().set_points_as_corners(
+                    [[gm["x"] + rx * np.cos(t), top_y - ry * np.sin(t), 0] for t in ts]).set_stroke(*stroke)
+                shape = VGroup(body, rim)
+                room_top[p], room_bot[p] = gm["top"] - 2 * ry - 0.1, gm["bot"] + 2 * ry + 0.06
+            elif shapes.get(p) == "circle":       # a cell, a person, a node: an ellipse
+                bh = gm["top"] - gm["bot"]
+                shape = Ellipse(width=bw, height=bh).set_stroke(*stroke).set_fill(c, 0.12).move_to([gm["x"], gm["y"], 0])
+                room_top[p], room_bot[p] = gm["top"] - 0.2 * bh, gm["bot"] + 0.2 * bh
+            elif shapes.get(p) == "bin":          # an open container: a bucket, a tray, a hand
+                bh, r = gm["top"] - gm["bot"], 0.2
+                x0, x1, y0, y1 = gm["x"] - bw / 2, gm["x"] + bw / 2, gm["bot"], gm["top"]
+                arc_l = [[x0 + r - r * np.sin(t), y0 + r - r * np.cos(t), 0] for t in np.linspace(0, PI / 2, 6)][::-1]
+                arc_r = [[x1 - r + r * np.sin(t), y0 + r - r * np.cos(t), 0] for t in np.linspace(0, PI / 2, 6)]
+                rim = VMobject().set_points_as_corners([[x0, y1, 0], *arc_l, *arc_r, [x1, y1, 0]])
+                rim.set_stroke(*stroke)
+                fill = Rectangle(width=bw, height=bh).move_to([gm["x"], gm["y"], 0]).set_stroke(width=0).set_fill(c, 0.08)
+                shape = VGroup(fill, rim)
+                room_top[p], room_bot[p] = gm["top"] - 0.08, gm["bot"] + 0.12
+            else:
+                shape = RoundedRectangle(width=bw, height=gm["top"] - gm["bot"], corner_radius=0.2)
+                shape.set_stroke(*stroke).set_fill(c, 0.12).move_to([gm["x"], gm["y"], 0])
+                room_top[p], room_bot[p] = gm["top"] - 0.12, gm["bot"] + 0.12
+            name = _wrap_fit(p, size * 0.9, lc if lit else th.muted, bw, name_h * 0.9, f"{where} part")
+            if gm.get("name_left"):
+                name.next_to([gm["x"] - bw / 2, gm["y"], 0], LEFT, buff=0.2)
+            else:
+                name.move_to([gm["x"], gm["bot"] - name_h / 2 - 0.02, 0])
+            self.boxes.add(VGroup(shape, name))
+            self.box_of[p] = shape
+        self.links: dict[frozenset, tuple] = {}
+        self.wire_mob: dict[frozenset, Line] = {}
+        self.size, self.color_of = size, color_of
+        # ring, column, grid, or links given: wires drawn between box outlines, bent round other boxes
+        self.bent = ring or free or pairs is not None
+        if self.bent:
+            if pairs is None:
+                pairs = _ring_pairs(tiers) if ring else \
+                    list(zip(parts, parts[1:])) if layout == "column" else []
+            for (a, b), pts in _bent_wires(self, pairs, name_h):
+                self.links[frozenset((a, b))] = (pts[0], pts[-1])
+                line = VMobject().set_points_as_corners(pts).set_stroke(th.muted, 2 if ring else 3, 0.5 if ring else 1)
+                self.wire_mob[frozenset((a, b))] = line
+                self.wires.add(line)
+                text = wire_labels.get(frozenset((a, b)))
+                if text:
+                    mid = pts[len(pts) // 2]
+                    lab = _wrap_fit(text, size * 0.7, th.muted, 2.2, 0.4, f"{where} wires=")
+                    self.wire_labels.add(lab.move_to(mid + UP * 0.25).set_backstroke(th.bg, 4))
+        for ta, tb in ([] if self.bent else zip(tiers, tiers[1:])):
+            for a in ta:
+                for b in tb:
+                    p0 = np.array([self.geom[a]["x"] + self.geom[a]["bw"] / 2, self.geom[a]["y"], 0.0])
+                    p1 = np.array([self.geom[b]["x"] - self.geom[b]["bw"] / 2, self.geom[b]["y"], 0.0])
+                    self.links[frozenset((a, b))] = (p0, p1)
+                    line = Line(p0, p1).set_stroke(th.muted, 3)
+                    self.wire_mob[frozenset((a, b))] = line
+                    self.wires.add(line)
+                    text = wire_labels.get(frozenset((a, b)))
+                    if text:
+                        lab = _wrap_fit(text, size * 0.7, th.muted, g * 0.92, 0.4, f"{where} wires=")
+                        u = (p1 - p0) / (np.linalg.norm(p1 - p0) or 1)
+                        normal = np.array([-u[1], u[0], 0.0])
+                        self.wire_labels.add(lab.move_to((p0 + p1) / 2 + normal * 0.28).set_backstroke(th.bg, 4))
+
+        # items, in document order
+        items = []
+        for c in node.children:
+            iw = f"{where} <item id={c.id}>"
+            if not c.id:
+                raise BeatError(f"{where} <item> needs an id (keep it in every beat so the item travels)")
+            if "on" in c.attrs:
+                raise BeatError(f'{iw}: items always rest inside a part (in="…"). A message travels by itself '
+                                'when its in= changes between beats; a new one sent in this beat is written '
+                                'in="<receiver>" from="<sender>"')
+            bad = set(c.attrs) - ITEM_ATTRS
+            if bad:
+                raise BeatError(f"{iw}: unknown attributes {sorted(bad)}; allowed {sorted(ITEM_ATTRS)}")
+            if any(c.id == i["id"] for i in items):
+                raise BeatError(f'{where}: two items have id="{c.id}"')
+            text = c.attrs.get("text", "").strip()
+            if not text:
+                raise BeatError(f'{iw} needs text="…"')
+            kind, place = system_place(c.attrs.get("in", ""), "", tiers, iw)
+            sender = c.attrs.get("from", "").strip()
+            if sender:
+                sender = system_place(sender, "", tiers, f"{iw} from=")[1]
+                if sender == place:
+                    raise BeatError(f'{iw} from="{sender}" is the part it is in; from= names the sender')
+            lines = [x.strip() for x in c.attrs.get("lines", "").split("|") if x.strip()
+                     and "".join(x.split()).lower() != "".join(text.split()).lower()]   # not its header again
+            style = c.attrs.get("style", "").strip().lower() or ("card" if lines else "pill" if sender else "slot")
+            if style not in ITEM_STYLES:
+                raise BeatError(f'{iw} style="{style}": use one of {", ".join(ITEM_STYLES)}')
+            if lines and style != "card":
+                style = "card"          # lines only fit on a card: take it as one rather than refuse
+            items.append({"id": c.id, "kind": kind, "place": place, "text": text, "lines": lines,
+                          "style": style, "color": c.attrs.get("color"), "from": sender})
+
+        self.slots: dict[tuple[str, str, int], VGroup] = {}
+        self.slot_order: dict[str, list[tuple[str, str, int]]] = {}
+        # the most slots/items each part holds in any beat of the scene (parse.carry_system_look),
+        # so a part keeps one layout and nothing reshuffles when an item arrives
+        reserve: dict[str, tuple[int, int]] = {}
+        for chunk in (c.strip() for c in (node.attrs.get("_room", "") if reserve_ok else "").split(";") if c.strip()):
+            name, _, nums = chunk.rpartition(":")
+            ns, _, ni = nums.partition("/")
+            if name in self.geom and ns.isdigit() and ni.isdigit():
+                reserve[name] = (int(ns), int(ni))
+        self.items: dict[str, VGroup] = {}
+        self.item_info: dict[str, dict] = {}
+        for p in parts:
+            gm = self.geom[p]
+            inner = gm["bw"] * (0.66 if shapes.get(p) == "circle" else 0.86)
+            stack = [it for it in items if it["kind"] == "in" and it["place"] == p]
+            plain = holds.get(p, [])
+            room = room_top[p] - room_bot[p]
+            used = sum(self._height(it) + self.GAP for it in stack)
+            res_slots, res_items = reserve.get(p, (0, 0))
+            padded = plain + ["0"] * max(0, res_slots - len(plain))   # room for the most it ever holds
+            # items it holds in other beats of the scene count too, so the layout never switches
+            used += max(0, res_items - len(stack)) * (0.6 + self.GAP)
+            # many small things in one part (requests waiting in a client): items in a grid, row by row
+            item_cols, item_rows = 1, []
+            # the slots need at least their rows at 3 across beside the items
+            slot_min = -(-max(len(plain), res_slots) // 3) * (self.SLOT_H + self.GAP)
+            if used + slot_min > room + 1e-6 and max(len(stack), res_items) > 1 and \
+                    all(it["style"] != "card" for it in stack):
+                n_it = max(len(stack), res_items)
+                hs = [self._height(it) for it in stack] + [0.6] * (n_it - len(stack))
+                for c in (2, 3, 4):
+                    rows = [max(hs[r * c:(r + 1) * c]) for r in range(-(-n_it // c))]
+                    if sum(rows) + self.GAP * len(rows) + slot_min <= room + 1e-6:
+                        item_cols, item_rows, used = c, rows, sum(rows) + self.GAP * len(rows)
+                        break
+
+            def grid(cols, plain=padded, inner=inner):
+                """(slot width, row heights) for the slots in `cols` columns; a slot whose text would
+                read small on one line is made two lines tall."""
+                sw = (inner - (cols - 1) * self.GAP) / cols
+                hs = [self._slot_h(it, sw, size) for it in plain]
+                return sw, [max(hs[r * cols:(r + 1) * cols]) for r in range(-(-len(plain) // cols))]
+
+            cols, layout_ = None, None
+            for c in (1, 2, 3):
+                sw_, rows_h = grid(c)
+                if sum(rows_h) + self.GAP * len(rows_h) <= room - used + 1e-6:
+                    cols, layout_ = c, (sw_, rows_h)
+                    break
+            vertical = used <= room + 1e-6 and (not padded or cols is not None)
+            seen: dict[str, int] = {}
+
+            def slot_mob(it, sw, hh=self.SLOT_H, p=p):
+                lit = (p, it) in hot
+                box = RoundedRectangle(width=sw, height=hh, corner_radius=0.08)
+                box.set_stroke(*((lc, LIT_W) if lit else (color_of[p], 1.5)))
+                box.set_fill(color_of[p], 0.3)
+                # a held value the plan allowed must always draw: it may shrink further than other text
+                txt = _wrap_fit(it, size * 0.85, th.ink, sw * 0.9, hh * 0.8, f"{where} holds {p}",
+                                floor=0.3)
+                key = (p, it, seen.get(it, 0))
+                seen[it] = seen.get(it, 0) + 1
+                self.slots[key] = VGroup(box, txt.move_to(box))
+                self.slot_order.setdefault(p, []).append(key)
+                return self.slots[key]
+
+            if vertical:
+                y = room_top[p]
+                if layout_:
+                    sw, rows_h = layout_
+                    for r, rh in enumerate(rows_h):       # left to right, then the next row
+                        for col, it in enumerate(plain[r * cols:(r + 1) * cols]):
+                            slot_mob(it, sw, rh).move_to([gm["x"] - inner / 2 + sw / 2 + col * (sw + self.GAP),
+                                                          y - rh / 2, 0])
+                        y -= rh + self.GAP    # reserved rows keep their place, so items below never jump
+                if item_cols > 1:
+                    iw = (inner - (item_cols - 1) * self.GAP) / item_cols
+                    for k, it in enumerate(stack):
+                        r, col = divmod(k, item_cols)
+                        top = y - sum(item_rows[:r]) - self.GAP * r
+                        mob = self._item(it, iw, size, color_of[p], f"{where} <item id={it['id']}>")
+                        self.items[it["id"]] = mob.move_to([gm["x"] - inner / 2 + iw / 2 + col * (iw + self.GAP),
+                                                            top - item_rows[r] / 2, 0])
+                        self.item_info[it["id"]] = it
+                    continue
+                for it in stack:
+                    hh = self._height(it)
+                    mob = self._item(it, inner, size, color_of[p], f"{where} <item id={it['id']}>")
+                    self.items[it["id"]] = mob.move_to([gm["x"], y - hh / 2, 0])
+                    self.item_info[it["id"]] = it
+                    y -= hh + self.GAP
+                continue
+            # a short part (a column of a fan-out): everything side by side in one row
+            n = len(plain) + len(stack)        # what it holds now; things arriving later morph it
+            cw = (inner - (n - 1) * self.GAP) / n if n else inner
+            slot_hs = [self._slot_h(it, cw, size) for it in plain]
+            if max(slot_hs + [self._height(it) for it in stack], default=0.0) > room + 1e-6:
+                slot_hs = [self.SLOT_H] * len(plain)   # a short part: one-line slots, the text shrinks instead
+            tallest = max(slot_hs + [self._height(it) for it in stack], default=0.0)
+            if n > 4 or tallest > room + 1e-6:
+                raise BeatError(f"{where}: {p} is too full ({len(plain)} slots, {len(stack)} items); show fewer, "
+                                "or put several values on one card (lines=)")
+            xs = [gm["x"] - inner / 2 + cw / 2 + k * (cw + self.GAP) for k in range(n)]
+            for k, it in enumerate(plain):
+                slot_mob(it, cw, slot_hs[k]).move_to([xs[k], gm["y"], 0])
+            first_item = len(plain)
+            for k, it in enumerate(stack):
+                mob = self._item(it, cw, size, color_of[p], f"{where} <item id={it['id']}>")
+                self.items[it["id"]] = mob.move_to([xs[first_item + k], gm["y"], 0])
+                self.item_info[it["id"]] = it
+        self.notes = {}
+        for p, t in notes.items():
+            gm = self.geom[p]
+            if gm.get("name_left"):      # right of its box (the name is on the left)
+                lab = _wrap_fit(t, size * 0.8, th.accent, 2.4, name_h * 0.9, f"{where} notes=")
+                self.notes[p] = lab.next_to([gm["x"] + gm["bw"] / 2, gm["y"], 0], RIGHT, buff=0.2)
+            elif self.ring or free:      # beside its own name, the pair centred under the box (never by a neighbour)
+                name = self.boxes[parts.index(p)][1]
+                lab = _wrap_fit(t, size * 0.8, th.accent, gm["bw"] * 0.6, name_h * 0.9, f"{where} notes=")
+                total = name.get_width() + 0.15 + lab.get_width()
+                name.move_to([gm["x"] - total / 2 + name.get_width() / 2, name.get_center()[1], 0])
+                self.notes[p] = lab.next_to(name, RIGHT, buff=0.15)
+            elif gm["note_at"] == "above":
+                lab = _wrap_fit(t, size, th.accent, gm["bw"] + g * 0.8, note_h * 0.9, f"{where} notes=")
+                self.notes[p] = lab.move_to([gm["x"], gm["top"] + note_h / 2, 0])
+            else:   # a stacked part: the note sits in the name row, right of the name
+                lab = _wrap_fit(t, size * 0.8, th.accent, g * 0.9, name_h * 0.9, f"{where} notes=")
+                self.notes[p] = lab.next_to([gm["x"] + gm["bw"] / 2, gm["bot"] - name_h / 2, 0], RIGHT, buff=0.1)
+        self.note_text = dict(notes)
+        self.origin: dict[str, str] = {}     # held text -> the part it first appeared in (motion keeps it)
+        for (p, text, _k) in self.slots:
+            self.origin.setdefault(text, p)
+        layers = [frame, self.wires, self.wire_labels, self.boxes, *self.slots.values(), *self.notes.values()]
+        layers += [self.items[it["id"]] for it in items]
+        for k, layer in enumerate(layers):
+            _own_layer(layer, k)        # paint in this order (items over wires and boxes)
+        super().__init__(*layers)
+        self.content = json.dumps([node.tag, sorted(node.attrs.items()),
+                                   [sorted(c.attrs.items()) for c in node.children]])
+
+    # --- travel -------------------------------------------------------------------
+    def centre(self, p: str) -> np.ndarray:
+        """Part p's centre on screen now (the layout moves and scales the block after it is built,
+        so positions are read from the drawn outlines, never from the build-time geometry)."""
+        return self.box_of[p].get_center()
+
+    def _side(self, p: str, towards_tier: int, sibling_y: float | None = None) -> np.ndarray:
+        box, gm = self.box_of[p], self.geom[p]
+        c = box.get_center()
+        if towards_tier == gm["tier"]:          # a sibling in the same column: top or bottom side
+            return box.get_bottom() if (sibling_y if sibling_y is not None else c[1]) < c[1] else box.get_top()
+        return np.array([box.get_right()[0] if towards_tier > gm["tier"] else box.get_left()[0], c[1], 0.0])
+
+    def _port(self, p: str, towards: str) -> np.ndarray:
+        """Where a wire from part p towards another part leaves p's outline (read from the drawn
+        boxes: the layout moves and scales the block after it is built)."""
+        if not self.bent:
+            return self._side(p, self.geom[towards]["tier"])
+        box, other = self.box_of[p], self.box_of[towards]
+        c = box.get_center()
+        return _exit({"x": c[0], "y": c[1], "bw": box.get_width(), "top": c[1] + box.get_height() / 2,
+                      "bot": c[1] - box.get_height() / 2}, {"x": other.get_center()[0], "y": other.get_center()[1]})
+
+    def route(self, a: str, b: str) -> tuple[list[np.ndarray], list[frozenset]]:
+        """From part a to part b along the wires only (fewest hops; two servers of one column are
+        reached through the part they are both wired to): the waypoints (each part's side facing
+        the next) and the wires used."""
+        if a == b:
+            return [], []
+        nbrs: dict[str, list[str]] = {p: [] for p in self.parts}
+        for link in self.links:
+            u, v = tuple(link)
+            nbrs[u].append(v)
+            nbrs[v].append(u)
+        target_y = self.centre(b)[1]
+        prev, frontier = {a: None}, [a]
+        while frontier and b not in prev:
+            nxt = []
+            for u in frontier:   # nearest in height first, so a path does not zig-zag
+                for v in sorted(nbrs[u], key=lambda p: abs(self.centre(p)[1] - target_y)):
+                    if v not in prev:
+                        prev[v] = u
+                        nxt.append(v)
+            frontier = nxt
+        if b not in prev:
+            return self.hop(a, b), []
+        chain = [b]
+        while prev[chain[-1]] is not None:
+            chain.append(prev[chain[-1]])
+        chain.reverse()
+        pts, wires = [], []
+        for u, v in zip(chain, chain[1:]):
+            if self.bent:       # along the drawn wire (it may bend round a box), read where it is now
+                along = list(self.wire_mob[frozenset((u, v))].get_anchors())
+                if np.linalg.norm(along[0] - self.centre(u)) > np.linalg.norm(along[-1] - self.centre(u)):
+                    along.reverse()
+                pts += list(along)        # every point of the drawn wire: a smooth trail
+            else:
+                pts += [self._port(u, v), self._port(v, u)]
+            wires.append(frozenset((u, v)))
+        return pts, wires
+
+    def hop(self, a: str, b: str) -> list[np.ndarray]:
+        """No wire joins a and b (links="none": buckets, trays, hands): the thing jumps in an
+        arc from a's side facing b to b's side facing a, bowing up (or right, between two places
+        one above the other). Read from the drawn boxes."""
+        ca, cb = self.centre(a), self.centre(b)
+        d = cb - ca
+        dist = float(np.linalg.norm(d)) or 1.0
+        normal = np.array([-d[1], d[0], 0.0]) / dist
+        if normal[1] < -1e-6 or (abs(normal[1]) <= 1e-6 and normal[0] < 0):
+            normal = -normal                      # prefer bowing up (or right)
+        h = self.box_of[a].get_height()
+        others = [q for q in self.parts if q not in (a, b)]
+        # the straightest arc clear of every other place (and its name under it)
+        best = None
+        for bow in (0.25, -0.25, 0.6, -0.6, 1.0, -1.0, 1.5, -1.5, 2.1, -2.1):
+            ctrl = (ca + cb) / 2 + normal * bow * h * 2
+            curve = [(1 - t) ** 2 * ca + 2 * (1 - t) * t * ctrl + t ** 2 * cb for t in np.linspace(0, 1, 97)]
+            pts = [q for q in curve if not self._covers(a, q) and not self._covers(b, q)]
+            if len(pts) >= 2 and not any(self._covers(o, q, name=True) for o in others for q in pts):
+                best = pts
+                break
+        if best is None:
+            best = [q for q in curve if not self._covers(a, q) and not self._covers(b, q)] or [ca, cb]
+        return best       # every sample: the trail and the packet follow a smooth curve
+
+    def _covers(self, p: str, q: np.ndarray, name: bool = False) -> bool:
+        """Does part p's drawn outline (an ellipse for a circle; with ``name``, also its name
+        below it) cover point q?"""
+        box = self.box_of[p]
+        c, w, hh = box.get_center(), box.get_width() / 2, box.get_height() / 2
+        dx, dy = q[0] - c[0], q[1] - c[1]
+        if isinstance(box, Ellipse) and not name:
+            return (dx / w) ** 2 + (dy / hh) ** 2 < 1.0
+        below = 0.5 * hh if name else 0.0
+        return abs(dx) < w + 0.04 and -hh - below < dy < hh + 0.04
+
+    def packet(self, text: str, color: str) -> VGroup:
+        """A message on its way: a small dot on the wire with its name above it."""
+        th = current()
+        dot = Dot(radius=0.13).set_fill(color, 1).set_stroke(th.bg, 2)
+        lab = _label(text.split("\n")[0], self.size * 0.75, th.ink)
+        if lab.get_width() > 2.6:
+            lab.set_width(2.6)
+        lab.next_to(dot, UP, buff=0.08).set_backstroke(th.bg, 5)
+        return VGroup(dot, lab)
+
+    SLOT_TALL = 0.82
+
+    def _slot_h(self, text: str, width: float, size: float) -> float:
+        """One line, or a two-line slot when one line would have to shrink to read small."""
+        mob = _label(text, size * 0.85, "#ffffff")
+        k = min(1.0, width * 0.9 / max(mob.get_width(), 1e-6), self.SLOT_H * 0.8 / max(mob.get_height(), 1e-6))
+        return self.SLOT_H if k >= 0.75 or len(text.split()) < 2 else self.SLOT_TALL
+
+    def _height(self, it: dict) -> float:
+        return {"slot": self.SLOT_H, "pill": 0.6, "chip": 0.44}.get(it["style"], 0.5 + 0.36 * len(it["lines"]))
+
+    def _item(self, it: dict, width: float, size: float, part_color: str, where: str) -> VGroup:
+        th = current()
+        style = it["style"]
+        color = th.color(it["color"], "accent") if it["color"] or style != "slot" else part_color
+        hh = self._height(it)
+        if style == "chip":
+            probe = _label(it["text"], size * 0.75, th.bg)
+            width = min(width, probe.get_width() + 0.4)
+        shape = RoundedRectangle(width=width, height=hh,
+                                 corner_radius={"slot": 0.08, "card": 0.12}.get(style, hh / 2 - 0.01))
+        solid = style != "slot"
+        shape.set_stroke(color, 1.5 if not solid else 2).set_fill(color, 0.95 if solid else 0.3)
+        ink = th.bg if solid else th.ink
+        # text the plan allowed (<= 28 characters) must always draw, so it may shrink as far as slots
+        if style != "card":
+            scale = 0.75 if style == "chip" else 0.85
+            # a pill's round ends take room: the text keeps to the straight middle
+            room = width * 0.88 - (0.7 * hh if style in ("pill", "chip") else 0.0)
+            return VGroup(shape, _wrap_fit(it["text"], size * scale, ink, max(room, 0.3), hh * 0.8, where,
+                                           floor=0.3).move_to(shape))
+        head = _wrap_fit(it["text"], size * 0.85, ink, width * 0.88, 0.36, where, floor=0.3)
+        head.move_to(shape.get_top() + DOWN * 0.27)
+        rule = Line(shape.get_left() + RIGHT * 0.08, shape.get_right() + LEFT * 0.08)
+        rule.move_to(shape.get_top() + DOWN * 0.5).set_stroke(ink, 1.2, 0.6)
+        body = VGroup(*[_wrap_fit(x, size * 0.7, ink, width * 0.82, 0.3, where, floor=0.3) for x in it["lines"]])
+        for k, mob in enumerate(body):
+            mob.move_to(shape.get_top() + DOWN * (0.5 + 0.18 + 0.36 * k))
+            mob.align_to(shape.get_left() + RIGHT * 0.18, LEFT)
+        return VGroup(shape, VGroup(head, rule, body))
+
+    def place_of(self, item_id: str) -> str:
+        return self.item_info[item_id]["place"]
+
+
+RING_BOX = (2.8, 2.1)     # a peer's box on the ring (width, height)
+RING_WIDE = 1.6           # the ring is an ellipse this much wider than tall (the page is 16:9)
+
+
+def _ring_geometry(block, tiers, name_h: float) -> tuple[float, float]:
+    """Peers on a circle (the first at the top, then clockwise), a part before them on the left and
+    one after them on the right; the radius is the smallest that keeps boxes and names apart.
+    Fills block.geom (centred on the origin) and returns the block's (w, h)."""
+    bw, bh = RING_BOX
+    peers = next(t for t in tiers if len(t) > 1)
+    k_ring = tiers.index(peers)
+    n = len(peers)
+
+    def spots(R):
+        return [(RING_WIDE * R * np.cos(PI / 2 - TAU * k / n), R * np.sin(PI / 2 - TAU * k / n)) for k in range(n)]
+
+    R = 1.4
+    while not all(abs(a[0] - b[0]) > bw + 0.3 or abs(a[1] - b[1]) > bh + name_h + 0.2
+                  for i, a in enumerate(spots(R)) for b in spots(R)[i + 1:]):
+        R += 0.05
+    geom = {}
+    for p, (x, y) in zip(peers, spots(R)):
+        geom[p] = {"tier": k_ring, "x": x, "y": y, "top": y + bh / 2, "bot": y - bh / 2, "note_at": "name", "bw": bw}
+    left = min(g["x"] for g in geom.values()) - bw / 2
+    right = max(g["x"] for g in geom.values()) + bw / 2
+    for k, t in enumerate(tiers):
+        if t is peers:
+            continue
+        x = left - 1.8 - bw / 2 if k < k_ring else right + 1.8 + bw / 2
+        geom[t[0]] = {"tier": k, "x": x, "y": 0.0, "top": bh / 2, "bot": -bh / 2, "note_at": "name", "bw": bw}
+    x0 = min(g["x"] - g["bw"] / 2 for g in geom.values())
+    x1 = max(g["x"] + g["bw"] / 2 for g in geom.values())
+    y0 = min(g["bot"] for g in geom.values()) - name_h
+    y1 = max(g["top"] for g in geom.values())
+    for g in geom.values():
+        g["x"] -= (x0 + x1) / 2
+        for key in ("y", "top", "bot"):
+            g[key] -= (y0 + y1) / 2
+    block.geom = geom
+    return x1 - x0, y1 - y0
+
+
+def _exit(a: dict, b: dict) -> np.ndarray:
+    """The point where the line from box a's centre to b's centre leaves box a."""
+    ca, cb = np.array([a["x"], a["y"], 0.0]), np.array([b["x"], b["y"], 0.0])
+    d = cb - ca
+    hw, hh = a["bw"] / 2, (a["top"] - a["bot"]) / 2
+    t = min(hw / abs(d[0]) if abs(d[0]) > 1e-9 else np.inf, hh / abs(d[1]) if abs(d[1]) > 1e-9 else np.inf)
+    return ca + d * min(t, 1.0)
+
+
+def _free_geometry(block, parts: list[str], layout: str, name_h: float, most: int = 0,
+                   wide: bool = False) -> tuple[float, float]:
+    """``column``: the places top to bottom; ``grid``: rows of places, left to right then down
+    (about square). Fills block.geom (centred on the origin) and returns the block's (w, h)."""
+    n = len(parts)
+    if layout == "column":       # levels close together, each name at its left
+        rows, cols, (bw, bh) = n, 1, (4.2, 1.25)
+        gx, gy = 1.3, 0.3
+    else:
+        rows = 1 if n <= 3 else max(1, int(round(np.sqrt(n))))     # a few places: one row
+        cols = -(-n // rows)
+        bw, bh = (3.6 if wide else 2.9), 1.9
+        gx, gy = 1.3, 0.35 + name_h
+    # tall enough for the fullest place: its things stacked (two-line slots for long text)
+    bh = max(bh, 0.3 + most * (0.5 + 0.08))     # one-line slots (long text shrinks to fit)
+    if wide and layout == "column":
+        bw = max(bw, 4.6)
+    geom = {}
+    for i, p in enumerate(parts):
+        r, c = divmod(i, cols)
+        x, y = c * (bw + gx), -r * (bh + gy)
+        geom[p] = {"tier": i, "x": x, "y": y, "top": y + bh / 2, "bot": y - bh / 2, "note_at": "name", "bw": bw,
+                   "name_left": layout == "column"}
+    x0 = min(g["x"] - g["bw"] / 2 for g in geom.values())
+    x1 = max(g["x"] + g["bw"] / 2 for g in geom.values())
+    y0 = min(g["bot"] for g in geom.values()) - (0 if layout == "column" else name_h)
+    y1 = max(g["top"] for g in geom.values())
+    for g in geom.values():
+        g["x"] -= (x0 + x1) / 2
+        for key in ("y", "top", "bot"):
+            g[key] -= (y0 + y1) / 2
+    block.geom = geom
+    return x1 - x0, y1 - y0
+
+
+def _ring_pairs(tiers) -> list[tuple[str, str]]:
+    """Every two peers, and a part beside the ring with each peer."""
+    peers = next(t for t in tiers if len(t) > 1)
+    others = [t[0] for t in tiers if t is not peers]
+    return [(a, b) for i, a in enumerate(peers) for b in peers[i + 1:]] + [(o, p) for o in others for p in peers]
+
+
+def _bent_wires(block, pairs, name_h: float = 0.45) -> list[tuple[tuple[str, str], list[np.ndarray]]]:
+    """A wire for each pair. It is straight when it runs clear of the other boxes (and their
+    names), else it bends round them (the least bend that is clear), so a message never passes
+    through a place on its way; it starts and ends at the outlines, clear of the two names."""
+    geom = block.geom
+
+    def inside(g, x, y, pad=0.06):
+        return abs(x - g["x"]) < g["bw"] / 2 + pad and g["bot"] - 0.5 < y < g["top"] + pad   # box + name
+
+    out = []
+    for a, b in pairs:
+        ga, gb = geom[a], geom[b]
+        p0, p1 = np.array([ga["x"], ga["y"], 0.0]), np.array([gb["x"], gb["y"], 0.0])
+        d = p1 - p0
+        normal = np.array([-d[1], d[0], 0.0]) / (np.linalg.norm(d) or 1)
+        for bow in (0.0, *(k * sgn for k in (0.6, 1.0, 1.4, 1.8, 2.3, 2.8, 3.4) for sgn in (1, -1))):
+            ctrl = (p0 + p1) / 2 + normal * bow * 2      # a quadratic curve bows half as far as its control
+            ts = np.linspace(0, 1, 97)
+            curve = [(1 - t) ** 2 * p0 + 2 * (1 - t) * t * ctrl + t ** 2 * p1 for t in ts]
+            # the wire starts and ends at the outlines (a box's name row is below it, not part of it)
+            na = 0.0 if ga.get("name_left") else name_h
+            nb = 0.0 if gb.get("name_left") else name_h
+            pts = [q for q in curve if not (abs(q[0] - ga["x"]) < ga["bw"] / 2 and ga["bot"] - na < q[1] < ga["top"])
+                   and not (abs(q[0] - gb["x"]) < gb["bw"] / 2 and gb["bot"] - nb < q[1] < gb["top"])]
+            if len(pts) < 2:
+                continue
+            if not any(inside(g, q[0], q[1]) for c, g in geom.items() if c not in (a, b) for q in pts):
+                out.append(((a, b), pts))
+                break
+    return out
+
+
+def _centre_path(start: np.ndarray, end: np.ndarray, mids: list[np.ndarray]):
+    """alpha -> the centre's position along start, waypoints, end (by arc length)."""
+    pts = [start, *mids, end]
+    legs = [np.linalg.norm(b - a) for a, b in zip(pts, pts[1:])]
+    total = sum(legs) or 1.0
+
+    def centre(alpha: float) -> np.ndarray:
+        d = alpha * total
+        for k, L in enumerate(legs):
+            if d <= L or k == len(legs) - 1:
+                return pts[k] + (pts[k + 1] - pts[k]) * (min(d, L) / L if L > 1e-9 else 1.0)
+            d -= L
+        return end
+    return centre
+
+
+def _via(start: np.ndarray, end: np.ndarray, mids: list[np.ndarray]):
+    """A path through waypoints (out of a part's side, along the wire, in): the shape morphs
+    linearly; only its centre follows the legs."""
+    centre = _centre_path(start, end, mids)
+
+    def path(start_points, end_points, alpha):
+        straight = start_points + (end_points - start_points) * alpha
+        return straight + (centre(alpha) - (start + (end - start) * alpha))
+    return path
+
+
+def _become(m: Mobject, target: Mobject) -> Mobject:
+    """become() copies the target's normals, which are computed lazily and may be stale, and keeps
+    m's "up to date" flag: fills then draw with a wrong normal (invisible, or a skewed sliver)."""
+    m.become(target)
+    for sm in m.get_family():
+        if isinstance(sm, VMobject):
+            sm.refresh_unit_normal()
+    return m
+
+
+def _send(mob: Mobject | None, start_look: Mobject | None, end_look: Mobject, start: np.ndarray,
+          ports: list[np.ndarray], packet: Mobject) -> Animation:
+    """A thing changing parts: it shrinks into a packet at its part's side (or, born in its sender,
+    a packet grows out of the sender), the packet runs along the wires, and opens into its new
+    look inside the receiver. ``mob`` (the thing on screen, if any) is hidden; the move is drawn by
+    a carrier of fixed structure (manimgl batches what is drawn when a mobject is added, so
+    parts that appear inside a mobject mid-animation are never drawn), removed at the end."""
+    end = end_look.get_center()
+    src, dst = (ports[0], ports[-1]) if ports else (start, end)
+    along = _centre_path(src, dst, ports[1:-1])
+    s0 = (start_look if start_look is not None else end_look).copy()
+    e0, p0 = end_look.copy(), packet.copy()
+    pk_off = p0.get_center() - p0[0].get_center()      # the label sits above the dot
+    th = current()
+    route = [src, *ports[1:-1], dst]
+    legs = [np.linalg.norm(b - a) for a, b in zip(route, route[1:])]
+    trail0 = VMobject().set_points_as_corners([src, src]).set_stroke(th.accent, 3).set_fill(opacity=0)
+    for m in (s0, e0, p0, trail0):
+        m.fix_in_frame()        # overlay space, like every overlay mobject (a fresh packet is not)
+    carrier = VGroup(trail0.copy(), s0.copy(), p0.copy(), e0.copy())
+    A, B = 0.22, 0.78
+
+    def trail(m, u, opacity):
+        """The part of the wire the packet has covered, lit (the wire itself never changes)."""
+        d, pts = u * sum(legs), [route[0]]
+        for k, L in enumerate(legs):
+            if d >= L:
+                pts.append(route[k + 1])
+                d -= L
+            else:
+                pts.append(route[k] + (route[k + 1] - route[k]) * (d / L if L > 1e-9 else 0))
+                break
+        if len(pts) < 2:
+            pts.append(pts[0])
+        m.set_points_as_corners(pts)
+        m.set_stroke(th.accent, 3, opacity)
+
+    def place(m, base, at, k, opacity, offset=ORIGIN):
+        _become(m, base)
+        m.scale(max(k, 0.02)).move_to(at + offset * k)
+        m.set_opacity(opacity) if opacity < 1 else None
+
+    def update(c, t):
+        tr, st, pk, en = c
+        if t < A:
+            trail(tr, 0.0, 0.0)
+            u = smooth(t / A)
+            at = start + (src - start) * u
+            if start_look is not None:
+                place(st, s0, at, 1 - 0.85 * u, 1 - u)
+                place(pk, p0, at, 1.0, u, pk_off)
+            else:
+                place(st, s0, at, 0.02, 0)
+                place(pk, p0, at, 0.3 + 0.7 * u, min(1.0, 2 * u), pk_off)
+            place(en, e0, end, 0.02, 0)
+        elif t < B:
+            u = smooth((t - A) / (B - A))
+            trail(tr, u, 0.9)
+            at = along(u)
+            place(st, s0, at, 0.02, 0)
+            place(pk, p0, at, 1.0, 1.0, pk_off)
+            place(en, e0, end, 0.02, 0)
+        else:
+            u = smooth((t - B) / (1 - B))
+            trail(tr, 1.0, 0.9 * (1 - u))
+            at = dst + (end - dst) * u
+            place(st, s0, at, 0.02, 0)
+            place(pk, p0, at, 1.0, 1 - u, pk_off)
+            place(en, e0, at, 0.15 + 0.85 * u, u)
+    move = UpdateFromAlphaFunc(carrier, update, rate_func=linear, remover=True)
+    if mob is None:
+        return move
+    hide = UpdateFromAlphaFunc(mob, lambda m, t: m.set_opacity(0.0), rate_func=linear)
+    return AnimationGroup(hide, move)
+
+
+def _system(old: PlacesBlock, new: PlacesBlock) -> Animation:
+    """Same parts. An item that keeps its id and changes part is sent: it shrinks into a packet,
+    runs along the wires and opens in its new part; a new item with from= is born in its sender
+    and sent the same way. A new item or slot whose text was an item or slot of another part a
+    moment ago is sent from there. Everything else changes in place.
+
+    A beat with something on the wire plays in order, so nothing shifts under a moving packet:
+    what disappears goes first, a sending part takes its new state as the packet leaves (its
+    count drops), the packets travel while everything else holds still, and every other part
+    takes its new state (counters, highlights, notes, new slots) once the packets arrive."""
+    th = current()
+    new.origin = {**new.origin, **old.origin}         # a value keeps the part it first appeared in
+    changes: list[tuple[str | None, Animation]] = []    # in place, tagged with their part
+    leave: list[Animation] = []
+    travel: list[Animation] = []
+    senders: set[str] = set()
+
+    def send(mob, start_look, end_look, a_part, b_part, start, text, color):
+        ports, _ = new.route(a_part, b_part)
+        senders.add(a_part)
+        travel.append(_send(mob, start_look, end_look, start, ports, new.packet(text, color)))
+
+    changes += [(p, Transform(a, b)) for p, a, b in zip(new.parts, old.boxes, new.boxes)]
+    changes.append((None, Transform(old.wire_labels, new.wire_labels) if len(old.wire_labels) == len(new.wire_labels)
+                    else FadeTransform(old.wire_labels, new.wire_labels)))
+    gone_items = {i: m for i, m in old.items.items() if i not in new.items}
+    gone_slots = {k: m for k, m in old.slots.items() if k not in new.slots}
+    for i, b in new.items.items():
+        info = new.item_info[i]
+        here = info["place"]
+        if i in old.items:
+            a, src = old.items[i], old.place_of(i)
+            if src != here:
+                send(a, a, b, src, here, a.get_center(), info["text"], th.accent)
+            elif old.item_info[i]["text"] == info["text"] and old.item_info[i]["lines"] == info["lines"] \
+                    and len(a) == len(b):
+                changes.append((here, Transform(a, b)))
+            else:
+                changes += [(here, Transform(a[0], b[0])), (here, FadeTransform(VGroup(*a[1:]), VGroup(*b[1:])))]
+            continue
+        src_item = next((k for k in gone_items if old.item_info[k]["text"] == info["text"]
+                         and old.place_of(k) != here), None)
+        if src_item is not None:                   # the same thing under a new id, in another part
+            a = gone_items.pop(src_item)
+            send(a, a, b, old.place_of(src_item), here, a.get_center(), info["text"], th.accent)
+            continue
+        src_slot = next((k for k in gone_slots if k[1] == info["text"] and k[0] != here), None)
+        if src_slot is not None:                   # a stored value taken out and sent as a message
+            a = gone_slots.pop(src_slot)
+            send(a, a, b, src_slot[0], here, a.get_center(), info["text"], th.accent)
+            continue
+        if info["from"]:                           # born in its sender, sent in this beat
+            send(None, None, b, info["from"], here, new.centre(info["from"]), info["text"], th.accent)
+            continue
+        changes.append((here, FadeIn(b, scale=0.8)))
+    for k, m in new.slots.items():
+        p = k[0]
+        if k in old.slots:
+            changes.append((p, Transform(old.slots[k], m)))
+            continue
+        src_item = next((i for i in gone_items if old.item_info[i]["text"] == k[1]), None)
+        if src_item is not None:                   # a message delivered and stored
+            a = gone_items.pop(src_item)
+            if old.place_of(src_item) != p:
+                send(a, a, m, old.place_of(src_item), p, a.get_center(), k[1], th.accent)
+            else:
+                changes.append((p, Transform(a, m)))
+            continue
+        moved = next((ok for ok in gone_slots if ok[1] == k[1]), None)
+        order_new, order_old = new.slot_order.get(p, []), old.slot_order.get(p, [])
+        pos = order_new.index(k) if k in order_new else -1
+        same_place = order_old[pos] if 0 <= pos < len(order_old) else None
+        if moved is None and same_place in gone_slots:   # the same slot, a new value: changes where it is
+            a = gone_slots.pop(same_place)
+            changes += [(p, Transform(a[0], m[0])), (p, FadeTransform(a[1], m[1]))]
+            continue
+        if moved is not None:
+            a = gone_slots.pop(moved)
+            if moved[0] != p:
+                send(a, a, m, moved[0], p, a.get_center(), k[1], new.color_of[p])
+            else:
+                changes.append((p, Transform(a, m)))
+            continue
+        q = _copy_source(old, new, k[1], p) if new.bent else None
+        if q is not None:      # a value another place already holds (and keeps) is a copy sent from it
+            look = next(mob for kk, mob in old.slots.items() if kk[0] == q and kk[1] == k[1])
+            send(None, look.copy(), m, q, p, look.get_center(), k[1], th.accent)
+            continue
+        changes.append((p, FadeIn(m, scale=0.8)))
+    leave += [FadeOut(m, scale=0.8) for m in [*gone_items.values(), *gone_slots.values()]]
+    for p in set(old.notes) | set(new.notes):
+        a, b = old.notes.get(p), new.notes.get(p)
+        if a is not None and b is not None:
+            changes.append((p, Transform(a, b) if old.note_text[p] == new.note_text[p] else FadeTransform(a, b)))
+        elif b is not None:
+            changes.append((p, FadeIn(b, shift=0.15 * DOWN)))
+        else:
+            leave.append(FadeOut(a))
+    changes.append((None, Transform(old.wires, new.wires)))     # the wires never move or thicken
+    if not travel:
+        return AnimationGroup(*leave, *(x for _, x in changes))
+    for x in leave:
+        x.rate_func = squish_rate_func(smooth, 0.0, 0.2)
+    # the packets run along the NEW wires: if the whole system moved (the layout had to place it
+    # elsewhere this beat), it moves before they leave, so they never run beside a wire
+    moved = any(np.linalg.norm(old.centre(p) - new.centre(p)) > 0.02 for p in new.parts)
+    for p, x in changes:
+        early = moved or p in senders
+        x.rate_func = squish_rate_func(smooth, 0.0, 0.2) if early else squish_rate_func(smooth, 0.8, 1.0)
+    return AnimationGroup(*leave, *travel, *(x for _, x in changes))
+
+
+def _copy_source(old: PlacesBlock, new: PlacesBlock, text: str, p: str) -> str | None:
+    """The peer a new value of part p was copied from: one that held it a beat ago and still
+    does; the peer where the value first appeared wins (the leader, not another follower)."""
+    held = {kk[0] for kk in old.slots if kk[1] == text and kk[0] != p}
+    still = {kk[0] for kk in new.slots if kk[1] == text}
+    cands = [q for q in old.parts if q in held and q in still]
+    if not cands:
+        return None
+    first = old.origin.get(text)
+    return first if first in cands else cands[0]
+
+
+def build(node: Node, world=None) -> PlacesBlock:
+    return PlacesBlock(node)
+
+
+def morph(old: PlacesBlock, new: PlacesBlock, sources=None) -> Animation | None:
+    same = (old.tiers, old.layout, old.links_spec) == (new.tiers, new.layout, new.links_spec)
+    return _system(old, new) if same else None

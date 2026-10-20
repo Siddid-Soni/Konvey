@@ -1,0 +1,1 @@
+| `vector` | `{"values": [0.9, -0.4, 0.2], "label"?: "\\vec{E}", "highlight"?: [0], "orient"?: "column"\|"row"}` | a list of numbers taken as one thing: an embedding, a state, a gradient, a velocity, coordinates, a distribution, a matrix-times-vector result; beside any other picture, several side by side for one per item. Keep the id and change `values` as it updates |

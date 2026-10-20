@@ -1,0 +1,1 @@
+| `tex` | LaTeX math (inner text, no `$`) | `size` (44), `color` (keep the id and it morphs from the previous formula), `from="a: id>part; b: id>part"` (those symbols fly out of the picture's parts into place), `inline` (an operator kept between two pictures in a shot) |

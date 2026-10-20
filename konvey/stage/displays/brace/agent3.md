@@ -1,0 +1,1 @@
+| `brace` | a curly brace along one side of a thing on screen, with what it spans written beside it (the count of a group); takes no room in the layout | `of` (an id, or `id>part`), `label`, `side` (`bottom` default, `top`, `left`, `right`), `color` |

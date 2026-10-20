@@ -1,0 +1,1 @@
+| `ring` | a rounded outline drawn around one thing on screen (the group or item the line is about); takes no room in the layout | `of` (an id, or `id>part`: `bins>left`), `label`, `color` (the highlight colour) |

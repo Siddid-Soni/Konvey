@@ -1,0 +1,1 @@
+| `chart` | line / area chart | `series="Name:1,2,3;Other:3,2,1"` (same length each), `x="0,60"` (range, or one x per value), `y` (default: from 0 to the max), `fill="none\|area\|stack"`, `colors="c1,c2"`, `mark="Name:max;Name:min;x:30"` (the engine finds and labels the peak), `xlabel`, `ylabel`, `w`/`h` (u) |

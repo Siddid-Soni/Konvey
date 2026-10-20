@@ -1,0 +1,1 @@
+| `number` | a readout: the value large, its label under it (the plan's `number` objects) | `value`, `label`, `unit` (a unit such as cm or moves, never a second form of the value), `size` (80), `color` |

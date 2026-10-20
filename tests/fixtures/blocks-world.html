@@ -1,0 +1,19 @@
+<beats>
+<beat vo="Solids, a slanted light, their shadows, and a combed sphere." style="padding: 0.5u 0.6u; gap: 0.25u" t="0.4" hold="0.5">
+  <h2 id="title">Solids</h2>
+  <div id="view" class="grow"></div>
+  <world>
+    <ground></ground>
+    <light id="sun" dir="1,0.4,-1.6"></light>
+    <sphere id="ball" r="1.1" at="0,0,1.6"></sphere>
+    <solid id="post" shape="cylinder" r="0.35" h="2" at="-3,1.5,1" color="c2"></solid>
+    <solid id="peak" shape="cone" r="0.7" h="1.6" at="-3,-1.8,0.8" color="c3"></solid>
+    <solid id="crate" shape="box" size="1.2,1.2,1.2" at="2.6,2.2,0.6" rot="0,0,25" color="c4"></solid>
+    <shadow id="s1" of="ball"></shadow><shadow id="s2" of="post"></shadow>
+    <shadow id="s3" of="peak"></shadow><shadow id="s4" of="crate"></shadow>
+    <field id="comb" on="ball" fn="-y; x; 0" density="220"></field>
+    <label3d id="tag" of="ball" text="zero at each pole"></label3d>
+  </world>
+  <camera focus="view" theta="-30" phi="64"></camera>
+</beat>
+</beats>

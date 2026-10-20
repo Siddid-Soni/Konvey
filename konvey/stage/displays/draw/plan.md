@@ -1,0 +1,1 @@
+| `drawing` | `{"shows": "what the picture is, concretely", "labels"?: [texts on it]}` | a flat diagram no other kind draws: a lever on its pivot, a number line with marks, a balance, a plane figure; slots of a buffer filling and emptying; work blocks on a time axis; two columns of memory joined by a mapping. Same id every beat, so its parts slide to their new places |
