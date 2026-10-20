@@ -51,6 +51,9 @@ class Spec:
     arc: list[tuple[str, float]]                     # the angle's label at its arc
     complex: bool
     size: float
+    grid: bool = True                                # the faint grid behind (3b1b's phase axes have none)
+    ticks: bool = True                               # numbered ticks on the axes
+    names: tuple[str, str] = ("", "")                # the axes' names, at their positive ends
 
 
 # --- labels -----------------------------------------------------------------------------------
@@ -219,7 +222,7 @@ def draw(spec: Spec, grid=None, offsets: dict | None = None) -> tuple[VGroup, di
         back.add(_seg(at((k * step, y0)), at((k * step, y1))))
     for k in range(math.ceil(y0 / step - 1e-9), math.floor(y1 / step + 1e-9) + 1):
         back.add(_seg(at((x0, k * step)), at((x1, k * step))))
-    back.set_stroke(th.muted, 1, 0.28)
+    back.set_stroke(th.muted, 1, 0.28 if spec.grid else 0.0)
     axes = VGroup()
     if y0 <= 0 <= y1:
         axes.add(_seg(at((x0, 0)), at((x1, 0))))
@@ -234,6 +237,8 @@ def draw(spec: Spec, grid=None, offsets: dict | None = None) -> tuple[VGroup, di
         lo, hi = (x0, x1) if axis == "x" else (y0, y1)
         vals = [k * step for k in range(math.ceil(lo / step - 1e-9), math.floor(hi / step + 1e-9) + 1)]
         vals = [v for v in vals if abs(v) > 1e-9 and lo + 1e-9 < v < hi - 1e-9]
+        if not spec.ticks:
+            vals = []
         probe = label(_tick(max(vals, key=abs, default=1), axis == "y" and spec.complex), tick_fs, th.muted)
         room = (probe.get_width() if axis == "x" else probe.get_height()) + 0.14
         every = max(1, math.ceil(room / (step * u)))
@@ -249,6 +254,9 @@ def draw(spec: Spec, grid=None, offsets: dict | None = None) -> tuple[VGroup, di
             tick_labels.add(lab.set_stroke(th.bg, 4, 1, behind=True))   # readable across grid lines
     ticks.set_stroke(th.ink, 1.5, 0.75)
     names = VGroup()
+    for t, p, d in ((spec.names[0], at((x1, ax_y)), DL), (spec.names[1], at((ax_x, y1)), DR)):
+        if t and not spec.complex:
+            names.add(label(t, 1.1 * size, th.ink).next_to(p, d, buff=0.12))
     if spec.complex:
         for t, p, d in (("\\mathrm{Re}", at((x1, ax_y)), UL), ("\\mathrm{Im}", at((ax_x, y1)), DR)):
             names.add(label(t, 0.95 * size, th.muted).next_to(p, d, buff=0.1).shift(LEFT * 0.05 if d is UL else ORIGIN))
@@ -267,7 +275,8 @@ def draw(spec: Spec, grid=None, offsets: dict | None = None) -> tuple[VGroup, di
     for p, q, axis in grid if grid is not None else grid_sources(spec.rng, [m]):
         c = _clip(mapped(p), mapped(q), spec.rng)
         seg = _seg(at(c[0]), at(c[1])) if c else _seg(at((0, 0)), at((0, 0)))
-        moving.add(seg.set_stroke(th.palette[0], 2.6 if axis else 1.6, (0.9 if axis else 0.55) if c else 0))
+        moving.add(seg.set_stroke(th.palette[0], 2.6 if axis else 1.6,
+                                  (0.9 if axis else 0.55) if c and (spec.grid or not np.allclose(m, np.eye(2))) else 0))
 
     ring = VMobject().set_points_as_corners(
         [at(mapped((math.cos(a), math.sin(a)))) for a in np.linspace(0, TAU, 97)])
@@ -421,7 +430,14 @@ def spec_of(node: Node) -> Spec:
     unit = float(a.get("h", H)) / (y1 - y0)
     if a.get("w"):
         unit = min(unit, float(a["w"]) / (x1 - x0))
-    unit = min(unit, MAX_W / (x1 - x0))
+    unit = min(unit, (float(a["w"]) if a.get("w") else MAX_W) / (x1 - x0))
+    if a.get("_fill") and a.get("w") and a.get("h"):
+        # the plane is the whole box it was given: its axes run to the box's edges (3b1b's axes
+        # span the frame); the range grows around its centre, the scale stays
+        hx = max((x1 - x0) / 2, float(a["w"]) / unit / 2)
+        hy = max((y1 - y0) / 2, float(a["h"]) / unit / 2)
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        rng = (cx - hx, cx + hx, cy - hy, cy + hy, rng[4])
     color = _colors(node, [n for n, _ in [*vectors, *points]])
     coords = _on(a, "coords")
 
@@ -446,7 +462,10 @@ def spec_of(node: Node) -> Spec:
                 lines=line_items, circle=1.0 if _on(a, "circle") else 0.0, angle=angle,
                 proj=1.0 if _on(a, "projections") and angle is not None else 0.0,
                 arc=[(theta, 1.0)] if angle is not None and theta.lower() != "none" else [],
-                complex=_on(a, "complex"), size=float(a.get("size", 30)))
+                complex=_on(a, "complex"), size=float(a.get("size", 30)),
+                grid=a.get("grid", "").strip().lower() not in ("none", "false", "no", "off"),
+                ticks=a.get("ticks", "").strip().lower() not in ("none", "false", "no", "off"),
+                names=(a.get("xlabel", "").strip(), a.get("ylabel", "").strip()))
 
 
 class PlaneBlock(Block):
@@ -460,7 +479,19 @@ class PlaneBlock(Block):
         self.view = pic[0]
         super().__init__(*pic.submobjects)
         self.set_content(node, "vectors", "points", "lines", "matrix", "circle", "angle", "projections",
-                         "theta", "coords", "complex", "_range", "_colors", "size")
+                         "theta", "coords", "complex", "_range", "_colors", "size", "grid", "ticks",
+                         "xlabel", "ylabel", "w", "h")
+
+    def point(self, x: float, y: float) -> np.ndarray:
+        """Where the plane's (x, y) is on the page now (after the layout has fitted it)."""
+        x0, x1, y0, y1, _ = self.spec.rng
+        c = self.view.get_center()
+        k = self.view.get_width() / (x1 - x0)
+        return c + np.array([(x - (x0 + x1) / 2) * k, (y - (y0 + y1) / 2) * k, 0.0])
+
+    def bounds(self) -> tuple[float, float, float, float]:
+        (a, b, _), (c, d, _) = self.view.get_corner(DL), self.view.get_corner(UR)
+        return a, b, c, d
 
 
 def build(node: Node, world=None) -> PlaneBlock:

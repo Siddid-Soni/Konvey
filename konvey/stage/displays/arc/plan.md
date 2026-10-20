@@ -1,0 +1,1 @@
+| `arc` | `{"on": "<picture id>", "center": [x, y], "from": [x, y] or "hits.2", "to": …, "fill"?: true, "label"?}` | the arc swept about a centre between two points: an angle at the centre of a circle, a share of a turn |

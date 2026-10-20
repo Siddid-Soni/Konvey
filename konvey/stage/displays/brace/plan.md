@@ -1,0 +1,1 @@
+| `brace` | `{"of": "eq>2x", "label": "…"}` or `{"on": "<picture id>", "from": [x, y], "to": [x, y], "label": "…"}` | what a stretch measures, written beside a brace: a side of a figure, a group, a term of a formula, a small step on a number line |

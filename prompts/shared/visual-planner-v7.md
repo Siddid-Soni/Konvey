@@ -45,6 +45,22 @@ get:
   finishes the previous line's thought or comments on what is on screen, and every number it says
   is already shown. Most lines change something: mark part of it, add the number it says, move a
   pointer, add an edge.
+- **Build the main picture up, one mark per line.** When it has coordinates (a `plane`, `plot`,
+  `numberline` or `grid`), a line that points at part of it adds a mark *on* it, at its own
+  coordinates from the findings, instead of a new picture beside it: `dots` where things land,
+  a `path` through them (one point longer each line), an `arc` or `angle_mark` the line names, a
+  `brace` along the stretch it measures, a `note` with an arrow to the spot it is about. Keep
+  each mark's id while it matters; a mark the line has moved past stays with `"dim": true`.
+  A note's or mark's point lies *on* what it is about (a point of the curve, y = f(x); a dot; a
+  dashed `x=` mark), never in the empty space beside it.
+- **Show change as motion of the picture.** A line about something growing or moving plays it
+  on the main picture while it is spoken: a sum gaining terms or a coefficient turned is one
+  curve with steps (`"S": "a | b | c"`), a value followed along x is a `"slide"` with live
+  readouts (`{x}`, `{y}`, `{gap}` in the point's or gap's name): lines that read the same
+  quantity at one x, then a farther x, then farther still are one point sliding out with its
+  readout counting, not a bar chart of the values. The formula beside it changes
+  with it: a `tex` with one stage per step (`"a || b || c"`, `"follow": "plot id"`), gaining its
+  term as the curve bends. One curve that grows, not a new curve per beat.
 - **Numbers come out of the picture**: draw the members or steps first, then the count beside
   them. A formula (`tex`) comes after the pictures that show its parts.
 - **Every number on screen is in `FINDINGS`, `TRACES`, `PICTURE` or the line itself.** Use the

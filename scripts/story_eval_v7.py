@@ -194,8 +194,51 @@ SHOTS = {"full", "question", "derive", "compare", "title"}
 WORD_KINDS = {"text", "tex", "number"}   # set as words by a shot; every other kind is a picture
 
 
+def _mark_kinds() -> set[str]:
+    from konvey.stage import displays
+    return {d.kind for d in displays.all_displays() if d.kind and not d.picture} - WORD_KINDS
+
+
+MARK_KINDS = _mark_kinds()   # drawn on a picture (dots, a note, a brace): not a picture of their own
+
+
 def pictures(objects: list) -> list:
-    return [o for o in objects if o.get("kind") not in WORD_KINDS]
+    return [o for o in objects if o.get("kind") not in WORD_KINDS | MARK_KINDS]
+
+
+MAX_PICTURES = 2
+
+
+def crowd_problems(beats) -> list[str]:
+    """3b1b's frame holds one picture, or two that are linked (blocks and their phase circle);
+    three or four small pictures side by side read as a dashboard, each too small to watch."""
+    out = []
+    for b in beats:
+        pics = pictures(b.objects)
+        if len(pics) > MAX_PICTURES:
+            out.append(f"move {b.move} line {b.line}: {len(pics)} pictures on screen "
+                       f"({', '.join(str(o.get('id')) for o in pics)}); at most {MAX_PICTURES}. Keep the main picture and "
+                       "the one this line is about; drop the others (a word or number can say the rest)")
+    return out[:4]
+
+
+def renamed_axes_problems(beats) -> list[str]:
+    """One plot id keeps its axis names (the engine draws the first ones), so a different graph
+    under an old id shows the wrong axis names: a different graph is a new picture with its own id."""
+    first, out = {}, []
+    for b in beats:
+        for o in b.objects:
+            d = o.get("data") or {}
+            if o.get("kind") != "plot":
+                continue
+            names = first.setdefault(o.get("id"), {})
+            for k in ("xlabel", "ylabel"):
+                if d.get(k):
+                    if k in names and str(names[k]) != str(d[k]):
+                        out.append(f"move {b.move} line {b.line}: plot {o.get('id')} renames its {k} "
+                                   f"{names[k]!r} -> {d[k]!r}; a different graph needs its own id")
+                    names.setdefault(k, d[k])
+    return out[:3]
 SKIP_KEYS = {"until", "seed", "zoom", "at", "r", "size", "w", "h", "x", "y", "z", "index", "pointers",
              "highlight", "highlight_cols", "built_from", "period", "views"}
 
@@ -330,6 +373,11 @@ def planner_problems(out: SectionOut, script: Script, exp: Exploration, moves):
                          "notice, give a camera view or focus on the exact part the notice is about")
     warns += picture_warnings(out.beats)
     probs += state_problems(out.beats)
+    probs += pile_problems(out.beats)
+    probs += flat_problems(out.beats)
+    probs += lopsided_problems(out.beats)
+    probs += crowd_problems(out.beats)
+    probs += renamed_axes_problems(out.beats)
     if out.beats and camera_beats > 0.5 * len(out.beats):
         warns.append(f"the camera moves on {camera_beats} of {len(out.beats)} beats; about a third reads calmer")
     return probs, warns
@@ -354,6 +402,112 @@ def picture_warnings(beats) -> list[str]:
             warns.append(f"the main picture {main!r} is on {counts[main]} of {len(beats)} beats and the picture "
                          f"is swapped {switches} times; add new pictures beside it instead of replacing it")
     return warns
+
+
+def _fns(o) -> dict[str, str]:
+    fns = (o.get("data") or {}).get("fns")
+    return {str(k): str(v) for k, v in fns.items()} if isinstance(fns, dict) else {}
+
+
+def pile_problems(beats) -> list[str]:
+    """A plot that gains a curve which is one of its curves plus more terms (P2, then P4 beside
+    it): 3b1b bends the one curve into the next while the line is spoken, and its formula gains
+    the term. A pile of partial sums reads as a chart, not as a curve being built."""
+    squash = lambda e: re.sub(r"\s+", "", e.split("|")[-1])  # noqa: E731 - a curve's last step
+    prev: dict[str, dict[str, str]] = {}
+    out = []
+    for b in beats:
+        for o in b.objects:
+            if o.get("kind") != "plot":
+                continue
+            oid, now = o.get("id"), _fns(o)
+            before = prev.get(oid, {})
+            for label, expr in now.items():
+                if label in before:
+                    continue
+                grown = [k for k, e in before.items() if k in now and len(squash(expr)) > len(squash(e))
+                         and squash(expr).startswith(squash(e))]
+                if grown:
+                    k = grown[0]
+                    out.append(f"move {b.move} line {b.line}: plot {oid} adds {label!r} beside {k!r}, which it extends "
+                               f"by more terms. Grow the one curve instead: \"{k.split('|')[-1].strip()} | {label}\": "
+                               f"\"{before[k].split('|')[-1].strip()} | {expr}\" (it bends while the line is spoken; "
+                               f"one label per step), drop the separate {label!r}, and give the formula the same "
+                               "stages (tex \"a || b\", follow the plot)")
+            prev[oid] = now
+    return out[:4]
+
+
+def flat_problems(beats) -> list[str]:
+    """A plot's y range many times the height of its first (main) curve flattens that curve into
+    a line: the range was stretched to keep the approximations inside the box. 3b1b sizes y to
+    the function and lets a diverging approximation leave at the top or bottom edge."""
+    import numpy as np
+    from konvey.stage.displays.plot import spec as PS
+    out, seen = [], set()
+    for b in beats:
+        for o in b.objects:
+            d = o.get("data") or {}
+            if o.get("kind") != "plot" or o.get("id") in seen or not d.get("y"):
+                continue
+            fns = _fns(o)
+            if not fns:
+                continue
+            label, expr = next(iter(fns.items()))
+            try:
+                x, y = PS.pair(d["x"], "x"), PS.pair(d["y"], "y")
+                ys = PS.fn_of(expr.split("|")[0])(np.linspace(*x, 400))
+            except Exception:  # noqa: BLE001 - malformed data is reported by the plot checks
+                continue
+            ys = ys[np.isfinite(ys)]
+            if not len(ys):
+                continue
+            lo, hi = np.percentile(ys, 2), np.percentile(ys, 98)
+            span = max(hi - lo, 1e-9)
+            if (y[1] - y[0]) > 5 * span and lo >= y[0] and hi <= y[1]:
+                seen.add(o.get("id"))
+                pad = 0.25 * span
+                out.append(f"move {b.move} line {b.line}: plot {o.get('id')} has y={list(d['y'])}, "
+                           f"{(y[1] - y[0]) / span:.0f}x the height of its main curve {label!r} "
+                           f"({lo:.3g} to {hi:.3g}), so {label!r} reads as a flat line. Size y to it "
+                           f"(about [{lo - pad:.2g}, {hi + pad:.2g}]); an approximation that grows "
+                           "leaves at the top or bottom edge, as in 3b1b's graphs")
+    return out
+
+
+def lopsided_problems(beats) -> list[str]:
+    """A function symmetric about 0 (even or odd) on an x range that is not shows half of
+    itself: x from -1 to 5.5 cut a cosine-shaped curve off on the left."""
+    import numpy as np
+    from konvey.stage.displays.plot import spec as PS
+    out, seen = [], set()
+    for b in beats:
+        for o in b.objects:
+            d = o.get("data") or {}
+            fns = _fns(o)
+            if o.get("kind") != "plot" or o.get("id") in seen or not fns or not d.get("x"):
+                continue
+            label, expr = next(iter(fns.items()))
+            try:
+                x0, x1 = PS.pair(d["x"], "x")
+                f = PS.fn_of(expr.split("|")[0])
+            except Exception:  # noqa: BLE001 - malformed data is reported by the plot checks
+                continue
+            r = max(abs(x0), abs(x1))
+            xs = np.linspace(0.05 * r, r, 60)
+            a, b_ = f(xs), f(-xs)
+            ok = np.isfinite(a) & np.isfinite(b_)
+            if ok.sum() < 30:
+                continue
+            scale = max(float(np.max(np.abs(a[ok]))), 1e-9)
+            even = np.max(np.abs(a[ok] - b_[ok])) < 1e-6 * scale
+            odd = np.max(np.abs(a[ok] + b_[ok])) < 1e-6 * scale
+            if (even or odd) and abs(x0 + x1) > 0.25 * (x1 - x0):
+                seen.add(o.get("id"))
+                out.append(f"move {b.move} line {b.line}: plot {o.get('id')} has x={list(d['x'])}, but its main curve "
+                           f"{label!r} is {'even' if even else 'odd'} (the same on both sides of 0), so half of it is cut "
+                           f"off; use x=[-{r:g}, {r:g}]")
+    return out
 
 
 def state_problems(beats) -> list[str]:

@@ -39,16 +39,26 @@ def _check_object(d: dict) -> list[str]:
         if any(c in label for c in ":;"):
             problems.append(f'plot fns label {label!r}: no ":" or ";" in a label')
         try:
-            f = S.fn_of(expr)
+            steps = [S.fn_of(e) for _, e in S.stages(label, expr)]   # "a | b | c": played in turn
         except BeatError as e:
             problems.append(f"plot fns {label or expr!r}: {e}")
             continue
-        ys = f(np.linspace(*x, 400))
-        ys = ys[np.isfinite(ys)]
-        if not len(ys) or (y and not ((ys >= y[0]) & (ys <= y[1])).any()):
-            problems.append(f"plot fns {label or expr!r} = {expr!r} has no value inside the plot's "
-                            f"x/y range, so nothing would show")
-    labels = {squash(k) for k, _ in fns}
+        for f in steps:
+            ys = f(np.linspace(*x, 400))
+            ys = ys[np.isfinite(ys)]
+            if not len(ys) or (y and not ((ys >= y[0]) & (ys <= y[1])).any()):
+                problems.append(f"plot fns {label or expr!r} = {expr!r} has no value inside the plot's "
+                                f"x/y range, so nothing would show")
+                break
+    if d.get("slide") is not None:
+        sl = d["slide"]
+        try:
+            a, b = (S.number(v) for v in sl) if isinstance(sl, (list, tuple)) and len(sl) == 2 else (None, None)
+        except BeatError:
+            a = b = None
+        if a is None or not (x[0] <= a <= x[1] and x[0] <= b <= x[1]):
+            problems.append(f'plot slide {sl!r}: use [from, to], both inside x (the points at x=from ride to x=to)')
+    labels = {squash(l) for k, e in fns for l, _ in S.stages(k, e) if l} if not problems else {squash(k) for k, _ in fns}
     for name, at in (d.get("points") or {}).items() if isinstance(d.get("points"), dict) else []:
         ok = isinstance(at, (list, tuple)) and len(at) == 2
         if ok:
@@ -82,7 +92,7 @@ def _check_drawn(where: str, obj, leaves) -> list[str]:
     fns = _planned_fns(obj.data)
     try:
         x = S.pair(obj.data.get("x"), "x")
-        planned = [(label, expr, S.fn_of(expr)) for label, expr in fns]
+        planned = [(label, expr, S.fn_of(S.stages(label, expr)[0][1])) for label, expr in fns]
     except BeatError:
         return []
     drawn = _drawn(leaves)
@@ -95,6 +105,9 @@ def _check_drawn(where: str, obj, leaves) -> list[str]:
         if not any(np.allclose(dx, x, rtol=1e-6, atol=1e-6) for _, dx, _ in hits):
             return [f'{where}: <plot> with {expr!r} must use the planned x range '
                     f'x="{",".join(str(v) for v in obj.data["x"])}"']
+    if obj.data.get("slide") is not None and not any(n.attrs.get("slide", "").strip() for n in leaves if n.tag == "plot"):
+        a, b = obj.data["slide"] if isinstance(obj.data["slide"], (list, tuple)) and len(obj.data["slide"]) == 2 else ("from", "to")
+        return [f'{where}: <plot slide="{a} -> {b}"> (the planned slide: the points at x={a} ride to x={b})']
     for k in NAMES:
         want = obj.data.get(k)
         if want and not any(squash(n.attrs.get(k, "")) == squash(want) for n in leaves if n.tag == "plot"):

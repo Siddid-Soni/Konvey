@@ -50,18 +50,22 @@ def _css(style: str) -> str:
     return _UNIT.sub(lambda m: f"{float(m.group(1)) * PX_PER_UNIT:g}px", style)
 
 
-def _emit(node: Node, sizes: dict[str, tuple[float, float]]) -> str:
+def _emit(node: Node, sizes: dict[str, tuple[float, float]], parent: str = "") -> str:
     style = _css(node.attrs.get("style", ""))
     cls = node.attrs.get("class", "")
     ident = f' id="{html.escape(node.id)}"' if node.id else ""
     if node.tag in LEAF_TAGS:
         w, h = sizes[node.id]
-        style = f"width:{w * PX_PER_UNIT:.1f}px;height:{h * PX_PER_UNIT:.1f}px;{style}"
+        if node.tag in WIDE and not attached(node):   # a line spans its row or column; its height stays
+            span = "align-self:stretch;" if "col" in parent.split() else "flex:1 1 auto;align-self:center;"   # flex rows by default
+            style = f"min-width:{w * PX_PER_UNIT:.1f}px;height:{h * PX_PER_UNIT:.1f}px;{span}{style}"
+        else:
+            style = f"width:{w * PX_PER_UNIT:.1f}px;height:{h * PX_PER_UNIT:.1f}px;{style}"
         if attached(node):   # placed against another element after layout: takes no room
             style += ";position:absolute;left:0;top:0"
         grow = " growable" if growable(node) else ""
         return f'<div{ident} class="leaf{grow} {cls}" style="{style}"></div>'
-    inner = "".join(_emit(c, sizes) for c in node.children)
+    inner = "".join(_emit(c, sizes, cls) for c in node.children)
     return f'<div{ident} class="{cls}" style="{style}">{inner}</div>'
 
 
@@ -211,9 +215,16 @@ PICTURES = {d.tag for d in displays.all_displays() if d.picture}   # the picture
 
 # Axes-based pictures can take any proportions without distorting what they show (3b1b sizes his
 # axes to the room: Axes(width=..., height=...)); after growing, they also take the spare room in
-# the other direction, up to this change of aspect. A plane keeps its proportions (circles stay round).
-STRETCH = {"plot", "chart", "scatter", "bars"}
+# the other direction, up to this change of aspect. A plane takes it too: its circles stay round,
+# its axes run on to the box's edges (scene._redrawn), as 3b1b's axes span the frame.
+STRETCH = {"plot", "chart", "scatter", "bars", "plane"}
 STRETCH_MAX = 1.8
+# Pictures rebuilt at the size they are given rather than scaled to it, so their text keeps its
+# size (scene._redrawn); the block keeps its drawn area as ``view``.
+REDRAW = {"plane", "numberline"}
+# Pictures that take their column's whole width at their own height (a number line), as 3b1b
+# stacks number lines of one length; rebuilt at that width (scene._redrawn).
+WIDE = {"numberline"}
 
 
 def _composition(b: Beat) -> tuple:

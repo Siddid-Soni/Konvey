@@ -25,7 +25,10 @@ class Node:
     def text(self) -> str:
         return " ".join("".join(s for s, _ in self.segments).split(" ")).strip()
 
-    def walk(self):
+    def walk(self, into=None):
+        """This node and everything under it; ``into(node)`` False keeps out of that node's
+        children (a ``<draw>``'s shapes are its own, not leaves of the page)."""
         yield self
-        for c in self.children:
-            yield from c.walk()
+        if into is None or into(self):
+            for c in self.children:
+                yield from c.walk(into)

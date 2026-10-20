@@ -1,0 +1,1 @@
+| `numberline` | `{"x": [from, to], "markers"?: {"x": 1.5}, "step"?}` | a number line: a value being varied (its marker slides), where numbers sit among others, an input and its output on stacked lines (one per step); points and braces go on it |

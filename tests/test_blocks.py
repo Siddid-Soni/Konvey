@@ -368,7 +368,7 @@ def test_chart_and_plot_ranges_away_from_zero_keep_their_size():
     c = ChartBlock(leaf('<chart id="x" series="A:6,8,57" x="81,89" y="0,60" w="6" h="2.8"></chart>'))
     assert c.get_width() < 8.5
     p = build_plot(leaf('<plot id="x" x="100,110" y="50,60" fn="x - 50" w="5" h="3"></plot>'))
-    assert p.get_width() < 5.5 and p.get_height() < 3.5
+    assert p.get_width() < 5.8 and p.get_height() < 3.6   # the box plus its tick numbers
 
 
 def test_planned_numbers_compare_as_numbers():

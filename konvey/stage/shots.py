@@ -43,7 +43,7 @@ def _leaves(overlay: list[Node], leaf_tags) -> list[Node]:
     """The beat's leaves in reading order, out of whatever containers were written around them."""
     out = []
     for root in overlay:
-        for n in root.walk():
+        for n in root.walk(lambda m: m.tag not in displays.tags() or not displays.get(m.tag).children):
             if n.tag in leaf_tags:
                 out.append(n)
     return out

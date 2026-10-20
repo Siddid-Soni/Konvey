@@ -34,9 +34,9 @@ def scene(*kinds: str) -> Scene:
 
 def test_library_genres_have_front_matter():
     ex = load_examples()
-    assert sorted({e.genre for e in ex}) == ["cells", "chart", "clustering", "collection", "diagram", "drawing-memory",
+    assert sorted({e.genre for e in ex}) == ["cells", "chart", "clustering", "collection", "constructions", "diagram", "drawing-memory",
                                              "drawing-queue", "drawing-stack", "drawing-timeline", "equation",
-                                             "linear-maps", "named-grid", "network", "places", "places-jump", "plot", "shots",
+                                             "linear-maps", "named-grid", "network", "number-lines", "places", "places-jump", "plot", "shots",
                                              "simulation", "vector", "vectors3d", "world3d", "world3d-cut",
                                              "world3d-flow", "world3d-hull", "world3d-waves"]
     assert all(e.kinds and e.topic_keywords and "```html" in e.body for e in ex)
@@ -86,7 +86,7 @@ def test_guard_never_sees_nothing_but_overlaps(monkeypatch):
     assert select(scene("chart"), "coffee cone cylinder cuboid caesar odd number largest number "
                                   "bfs tip to tail lifo wedge frustum cache miss bounded buffer round robin "
                                   "page table edge detector k-means eigenvector sales tax drug dose pronoun king minus man bucket sort club vote "
-                                  "dye wind pond runner",
+                                  "dye wind pond runner ladder celsius",
                   log=lines.append) == []
     assert any("reference only" in m for m in lines)
 

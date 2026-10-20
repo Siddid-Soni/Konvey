@@ -61,7 +61,10 @@ world) and the words (headings, text, tex, values) and lays them out:
 
 A word with `inline` (an operator: `<tex id="times" inline>\times</tex>`) stays in the picture
 row between the pictures it was written between: a matrix × a vector, a set = a set. Marks that
-sit on other things (`ring`, `brace`, `arrow`, anything with `of=`) stay on what they mark.
+sit on other things (`ring`, `brace`, `arrow`, `note`, the marks with `on=`, anything with `of=`)
+stay on what they mark. A formula or number **about a picture** can sit inside it, in its emptiest
+corner, the way 3b1b writes the equation of the curve beside it on the same axes:
+`<tex id="eq" of="pic" side="inside">…</tex>` (or `inside-top-left` … `inside-bottom-right`).
 Without `shot` a beat is laid out from the HTML you write (rows, columns, `grow`), for the rare
 screen no shot fits. Most screens have no headline: say it, show it.
 
@@ -89,6 +92,8 @@ piece of a display the same way:
 | bars, scatter, chart | a bar's label, a point's label, a series' name |
 | plot | `x=2` (the point on the first curve), `x=2 on g`, a curve's name, a point's name (`P`) |
 | plane | a vector's or point's name (its tip) |
+| numberline | a marker's name (`x`), or `x=1.5` (that spot on the line) |
+| dots | a point's name (its label), or its number from 1 (`hits>3`) |
 | tex | a run of the formula (`x^2`, its first occurrence; `x^2#2` the second) |
 | text, headings | a word or phrase |
 | sim, simview | named in their sections below |

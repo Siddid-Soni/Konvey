@@ -21,8 +21,9 @@ from .dramabox import dialogue, map_dialogue
 REF = REPO_ROOT / "assets" / "voices" / "paige" / "raw" / "Bookworm_match_start_punkgoat_bookworm_convo01_04.mp3"
 PLAN = REPO_ROOT / "prompts" / "agent2-stage" / "plan-narration.md"
 STAGE_NOTE = REPO_ROOT / "prompts" / "agent3-stage" / "narration.md"   # appended to Agent 3's prompt
-BEAT_VO = re.compile(r'(<beat\b[^>]*?\bvo=")([^"]*)(")')
-BEAT_TAG = re.compile(r"<beat\b[^>]*>")
+# attribute values may hold ">" (focus="graph>x=2"), so a tag ends at the first ">" outside quotes
+BEAT_VO = re.compile(r'(<beat\b(?:[^>"]|"[^"]*")*?\bvo=")([^"]*)(")')
+BEAT_TAG = re.compile(r'<beat\b(?:[^>"]|"[^"]*")*>')
 CAPTION_ATTR = re.compile(r'\s+caption="[^"]*"')
 # Narrated videos show no subtitles: the vo is heard, and its room goes to the picture.
 SUBTITLES = False

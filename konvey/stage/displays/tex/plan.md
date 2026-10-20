@@ -1,1 +1,1 @@
-| `tex` | `{"tex"}` real LaTeX | a formula; the key formula appears in some beat |
+| `tex` | `{"tex", "follow"?, "paint"?}` real LaTeX | a formula; the key formula appears in some beat. A formula that grows with a plot's steps holds one stage per step between `\|\|` (`"y = 1 \|\| y = 1 + x \|\| y = 1 + x + x^2"`) with `"follow": "the plot's id"`: it gains its term as the curve bends. `"paint": {"y": "accent"}` gives a part its curve's colour |

@@ -7,7 +7,7 @@ from manimlib import *  # noqa: F401,F403
 
 from ...tree import BeatError, Node
 from ...theme import current
-from ..base import CELL, LIT_W, lit_color, cell_width, data_list, index_set, _num, _label, Block, HOP
+from ..base import CELL, LIT_W, lit_color, cell_width, data_list, index_set, _num, _label, Block, HOP, tidy_number
 
 LINK = 0.5    # the gap an arrow between two linked boxes spans
 
@@ -42,10 +42,11 @@ class ArrayBlock(Block):
     def __init__(self, node: Node):
         th = current()
         values = data_list(node, "values", required=False)   # empty: an empty slot (an empty stack)
+        shown = [tidy_number(v) for v in values]   # 0.0013888889 is drawn 0.001389
         n = len(values)
         size = float(node.attrs.get("size", 30))
         cell_h = CELL * min(1.0, size / 30)   # size= shrinks the cells too, not just the digits
-        cell_w = cell_width(values, size, cell_h)   # long values widen every cell alike
+        cell_w = cell_width(shown, size, cell_h)   # long values widen every cell alike
         hot = index_set(node.attrs.get("highlight", ""), n, "highlight")
         lc = lit_color(node)
         dim = index_set(node.attrs.get("dim", ""), n, "dim")
@@ -53,7 +54,7 @@ class ArrayBlock(Block):
         for i, v in enumerate(values):
             box = Rectangle(cell_w, cell_h).set_fill(th.panel_fill, 0.6)
             box.set_stroke(*((lc, LIT_W) if i in hot else (th.muted, 1.5)))
-            txt = _label(v, size, th.ink)
+            txt = _label(shown[i], size, th.ink)
             if txt.get_width() > cell_w * 0.85:
                 txt.set_width(cell_w * 0.85)
             cell = VGroup(box, txt.move_to(box))

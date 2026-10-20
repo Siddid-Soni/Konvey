@@ -1,0 +1,1 @@
+| `note` | `{"text": "…", "on": "<picture id>", "at": [[x, y], …]}` or `{"text": "…", "to": "eq>2x"}` | a short note with an arrow to exactly what the line names (a point, a term of a formula, several points at once), when pointing says more than a label |

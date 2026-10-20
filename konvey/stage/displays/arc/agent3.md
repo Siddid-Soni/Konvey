@@ -1,0 +1,1 @@
+| `arc` | the arc of a circle about a centre from one point round to another (counter-clockwise; `dir="cw"` the other way), or the filled wedge (`fill`): an angle swept at the centre, a share of a turn; takes no room | `on`, `center="0,0"`, `from`, `to` (points: `x,y` or `hits.2`), `dir`, `fill="true"`, `label` (outside its middle), `color` (accent), `dim="true"` |

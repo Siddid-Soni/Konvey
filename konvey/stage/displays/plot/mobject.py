@@ -174,6 +174,20 @@ def _point_y(fr: Frame, x: float, yref) -> float:
     return float(S.value(yref, [x])[0])
 
 
+def _drop(fr: Frame, p: np.ndarray, vm: VMobject) -> None:
+    """A dashed line from the point straight down (or up) to the x axis (3b1b's get_v_line)."""
+    x = (np.asarray(p - fr.ll) @ fr.ex) / (fr.ex @ fr.ex) * (fr.x[1] - fr.x[0]) + fr.x[0]
+    foot = fr.p(x, fr.origin[1])
+    _set_path(vm, _dashes(foot, p, fr.unit, dash=0.08, gap=0.07) if np.linalg.norm(p - foot) > 0.05 else [])
+
+
+def _gap_value(a, b, axis: str, v: float, fr: Frame) -> float:
+    if axis == "x":
+        return float(abs(S.value(a, [v])[0] - S.value(b, [v])[0]))
+    ra, rb = S.roots(a, v, fr.x), S.roots(b, v, fr.x)
+    return min((abs(p - q) for p in ra for q in rb), default=float("nan"))
+
+
 # --- label placement --------------------------------------------------------------------------
 class _Space:
     """What is already on the picture: points of curves and lines, and boxes of labels."""
@@ -256,11 +270,11 @@ class PlotBlock(Block):
         self.colors = [colors[i % len(colors)] for i in range(len(sp.curves))]
         muted = th.muted
 
-        self.axes = VGroup(Line(LEFT, RIGHT), Line(DOWN, UP)).set_stroke(muted, 1.5)
+        self.axes = VGroup(Line(LEFT, RIGHT), Line(DOWN, UP)).set_stroke(muted, 2.2)
         _axes(fr, self.axes)
         ox, oy = fr.origin
         self.ticks = []          # (axis, value, tick line, label or None)
-        tick_size = 0.7 * size
+        tick_size = 0.9 * size   # landmarks read at a glance (3b1b's −π, π, 2π are body size)
         corner = False   # the x axis wrote the value where the axes meet: the y axis does not repeat it
         for axis, (lo, hi), length, pi in (("x", sp.x, self.w, sp.xpi), ("y", sp.y, self.h, sp.ypi)):
             other = oy if axis == "x" else ox
@@ -274,7 +288,7 @@ class PlotBlock(Block):
                     if axis == "y" and corner:
                         continue
                     corner = corner or axis == "x"
-                line = Line(LEFT, RIGHT).set_stroke(muted, 1.5)
+                line = Line(LEFT, RIGHT).set_stroke(muted, 2.2)
                 _tick(fr, axis, v, line)
                 lab = _label(text, tick_size, muted)
                 c = _tick_at(fr, axis, v)
@@ -317,10 +331,16 @@ class PlotBlock(Block):
                 raise BeatError(f'<plot id={node.id}> point at x={x:g}, y={y:g} is outside x/y; '
                                 f"widen the range or drop it")
             self.dots.add(dot)
+        self.drops = VGroup()
+        if sp.drop:
+            for dot in self.dots:
+                vm = VMobject().set_stroke(muted, 2)
+                _drop(fr, dot.get_center(), vm)
+                self.drops.add(vm)
 
         # Labels: axis names, then marks, gaps, points and curves, each where it covers least.
         space = _Space((-1.2, -0.7, self.w + 3.0, self.h + 0.7))
-        for m in (*self.lines, *self.marks, *self.gaps, *self.dots):
+        for m in (*self.lines, *self.marks, *self.gaps, *self.dots, *self.drops):
             space.add_points(m)
         space.add_points(self.axes, weak=True)
         for lab in self.tick_labels:
@@ -339,7 +359,7 @@ class PlotBlock(Block):
         for (axis, v, text), vm in zip(sp.marks, self.marks):
             lab = None
             if text:
-                lab = _label(text, lab_size, th.accent)
+                lab = _label(S.fill(text, x=v), lab_size, th.accent)
                 top, bottom = (fr.p(v, sp.y[1]), fr.p(v, sp.y[0])) if axis == "x" else (fr.p(sp.x[1], v), fr.p(sp.x[0], v))
                 opts = ([(top, UP, 0), (top, UR, 0.3), (top, UL, 0.3), (bottom, DOWN, 1.5)] if axis == "x"
                         else [(top, RIGHT, 0), (top, UL, 0.4), (top, DL, 0.4), (bottom, UR, 0.6)])
@@ -351,7 +371,7 @@ class PlotBlock(Block):
         for (a, b, axis, v, text), mid in zip(sp.gaps, gap_mid):
             lab = None
             if text and mid is not None:
-                lab = _label(text, lab_size, th.accent)
+                lab = _label(S.fill(text, gap=_gap_value(a, b, axis, v, fr), x=v), lab_size, th.accent)
                 dirs = (DOWN, UP) if axis == "y" else (RIGHT, LEFT)
                 space.place(lab, [(mid, d, 0.3 * i) for i, d in enumerate(dirs)], gap=0.16)
                 lab.set_backstroke(th.bg, 5)
@@ -360,7 +380,7 @@ class PlotBlock(Block):
         for (name, x, yref), dot in zip(sp.points, self.dots):
             lab = None
             if name:
-                lab = _label(name, lab_size, th.ink)
+                lab = _label(S.fill(name, x=x, y=_point_y(fr, x, yref)), lab_size, th.ink)
                 space.place(lab, [(dot.get_center(), d, 0.12 * i) for i, d in enumerate([UR, UL, DR, DL, UP, DOWN, RIGHT, LEFT])])
                 lab.set_backstroke(th.bg, 5)
             self.point_labels.append(lab)
@@ -394,10 +414,23 @@ class PlotBlock(Block):
                               *self.curve_labels, *self.shade_labels) if m is not None]
         self.labels = VGroup(*labels)
         # tick labels over the curves: a curve crossing the axis at pi must not hide "π"
-        super().__init__(self.box, self.shades, self.axes, self.tick_lines, self.marks, self.lines,
+        super().__init__(self.box, self.shades, self.axes, self.tick_lines, self.marks, self.drops, self.lines,
                          self.tick_labels, self.gaps, self.dots, self.names, self.labels)
         self.set_content(node, "fn", "x", "y", "points", "mark", "gap", "shade", "color",
-                         "xlabel", "ylabel")
+                         "xlabel", "ylabel", "slide", "drop")
+
+
+def _point(self, x: float, y: float) -> np.ndarray:
+    """Where the plot's (x, y) is on the page now (after the layout has fitted it)."""
+    return Frame.of(self).p(x, y)
+
+
+def _bounds(self) -> tuple[float, float, float, float]:
+    (a, b, _), (c, d, _) = self.box.get_corner(DL), self.box.get_corner(UR)
+    return a, b, c, d
+
+
+PlotBlock.point, PlotBlock.bounds = _point, _bounds
 
 
 def build(node: Node, world=None) -> PlotBlock:
@@ -412,7 +445,7 @@ def enter(node: Node, mob: PlotBlock, run_time: float) -> Animation:
         fn = ENTERS.get(name)
         return (fn(mob, run_time) if fn else None) or FadeIn(mob, shift=0.25 * UP, run_time=run_time)
     frame = Group(mob.axes, mob.tick_lines, mob.tick_labels, mob.names)
-    rest = Group(mob.shades, mob.marks, mob.gaps, mob.dots, mob.labels)
+    rest = Group(mob.shades, mob.marks, mob.drops, mob.gaps, mob.dots, mob.labels)
     draw = max(0.8, run_time - 0.9)
     return AnimationGroup(FadeIn(frame, run_time=0.5),
                           ShowCreation(mob.lines, lag_ratio=0.15, run_time=draw),
@@ -563,7 +596,12 @@ class _Morph:
                          new.point_labels[j] if j is not None else None,
                          old.dots[i].get_center() if i is not None else None,
                          new.dots[j].get_center() if j is not None else None)
-            self.points.append((i, j, dot, lab))
+            drop = None
+            if so.drop or sn.drop:
+                drop = VMobject().set_stroke(current().muted, 2)
+                drop.fix_in_frame()   # like the plot's own parts, drawn in the overlay
+                group.append(drop)
+            self.points.append((i, j, dot, lab, drop))
             group += [dot, *lab.mobs()]
 
         self.names = [(_Label(old.name_labels.get(k), new.name_labels.get(k)))
@@ -656,7 +694,7 @@ class _Morph:
                 vm.set_stroke(opacity=(fade_in if j is not None else 1 - fade_out) * (mid is not None))
             lab.update(t, mid)
 
-        for i, j, dot, lab in self.points:
+        for i, j, dot, lab, drop in self.points:
             a = so.points[i] if i is not None else sn.points[j]
             b = sn.points[j] if j is not None else a
             x = (1 - t) * a[1] + t * b[1]
@@ -673,6 +711,214 @@ class _Morph:
             if i is None or j is None:
                 for m in lab.mobs():
                     m.set_opacity(op)
+            if drop is not None:
+                _drop(fr, dot.get_center(), drop)
+                both = so.drop and sn.drop
+                drop.set_stroke(opacity=float((op if both else fade_in if sn.drop else 1 - fade_out)
+                                              * bool(np.isfinite(y) and fr.inside(x, y, 0.01))))
+        self.t = t
 
         for lab in self.names:
             lab.update(t)
+
+
+# --- while the line is spoken: steps, then a slide ------------------------------------------------
+STATE = ("spec", "colors", "ticks", "tick_lines", "tick_labels", "lines", "shades", "marks", "drops",
+         "gaps", "dots", "names", "name_labels", "mark_labels", "gap_labels", "point_labels",
+         "curve_labels", "shade_labels", "labels", "box", "axes", "w", "h")
+
+
+def _stage(attrs: dict, step: int, slide: tuple[float, float] | None) -> dict:
+    """The plot's attributes at one stage: every stepped curve at its ``step``-th expression
+    (the last when it has fewer), and with ``slide`` what sat at x=from moved to x=to."""
+    out = {k: v for k, v in attrs.items() if k != "slide"}
+    parts, alias = [], {}
+    for part in S._items(attrs.get("fn", "")):
+        label, _, expr = part.rpartition(":")
+        st = S.stages(label, expr)
+        lab, e = st[min(step, len(st) - 1)]
+        parts.append(f"{lab}: {e}" if lab else e)
+        alias.update({S.squash(l): lab for l, _ in st if l})
+    out["fn"] = "; ".join(parts)
+
+    def name(ref: str) -> str:   # a curve named by any of its step labels: its label at this stage
+        return alias.get(S.squash(ref), ref.strip())
+
+    if alias:
+        pts = []
+        for part in S._items(attrs.get("points", "")):
+            nm, _, xy = part.rpartition(":")
+            xs, _, ys = xy.partition(",")
+            pts.append(f"{nm}: {xs.strip()},{name(ys)}")
+        out["points"] = "; ".join(pts)
+        for key, sep in (("gap", "@"), ("shade", ":")):
+            items = []
+            for part in S._items(attrs.get(key, "")):
+                refs, s_, rest = part.partition(sep)
+                items.append(",".join(name(r) for r in refs.split(",")) + s_ + rest)
+            out[key] = "; ".join(items)
+    attrs = out
+    if slide is not None:
+        a, b = slide
+        at = lambda v: abs(S.number(v) - a) <= 1e-9 * max(1.0, abs(a))  # noqa: E731
+        pts = []
+        for part in S._items(attrs.get("points", "")):
+            nm, _, xy = part.rpartition(":")
+            xs, _, ys = xy.partition(",")
+            pts.append(f"{nm}: {b!r},{ys.strip()}" if at(xs) else part)
+        out["points"] = "; ".join(pts)
+        marks = []
+        for part in S._items(attrs.get("mark", "")):
+            where, sep, label = part.partition(":")
+            axis, _, v = where.partition("=")
+            marks.append(f"x={b!r}{sep}{label}" if axis.strip() == "x" and at(v) else part)
+        out["mark"] = "; ".join(marks)
+        gaps = []
+        for part in S._items(attrs.get("gap", "")):
+            what, sep, label = part.partition(":")
+            refs, _, where = what.partition("@")
+            axis, _, v = where.partition("=")
+            gaps.append(f"{refs}@x={b!r}{sep}{label}" if axis.strip() == "x" and at(v) else part)
+        out["gap"] = "; ".join(gaps)
+    return {k: v for k, v in out.items() if v != ""}
+
+
+def _keep_offsets(start: PlotBlock, end: PlotBlock) -> None:
+    """A slide carries each point's and gap's words with it, where they sat at the start: two
+    readouts placed on their own at each end would cross on the way (3b1b's readouts ride along)."""
+    fs, fe = Frame.of(start), Frame.of(end)
+    for (a, b) in ((start.dots, end.dots),):
+        for d0, d1, l0, l1 in zip(a, b, start.point_labels, end.point_labels):
+            if l0 is not None and l1 is not None:
+                l1.move_to(d1.get_center() + (l0.get_center() - d0.get_center()))
+    for g0, g1, l0, l1 in zip(start.spec.gaps, end.spec.gaps, start.gap_labels, end.gap_labels):
+        m0, m1 = _gap(fs, *g0[:4], VMobject()), _gap(fe, *g1[:4], VMobject())
+        if l0 is not None and l1 is not None and m0 is not None and m1 is not None:
+            l1.move_to(m1 + (l0.get_center() - m0))
+
+
+def _aligned(block: PlotBlock, like: PlotBlock) -> PlotBlock:
+    """``block`` moved and scaled so its axis box sits exactly on ``like``'s (as laid out and framed)."""
+    k = like.box.get_width() / max(block.box.get_width(), 1e-9)
+    block.scale(k, about_point=block.box.get_corner(DL))
+    block.shift(like.box.get_corner(DL) - block.box.get_corner(DL))
+    block.fix_in_frame()
+    return block
+
+
+def schedule(steps: int, slide: bool, hold: float):
+    """When each step bends (about a second, then a rest on it) and when the slide runs, as
+    ([(t0, t1)] per step, (t0, t1) or None), in seconds into the hold. A formula that follows the
+    plot (``<tex follow>``) changes on the same beats."""
+    slide_t = (max(1.5, 0.5 * hold) if steps else 0.9 * hold) if slide else 0.0
+    step_t = max(0.0, hold - slide_t) / max(steps, 1)
+    times, t = [], 0.0
+    for _ in range(steps):
+        times.append((t, t + max(0.35, min(1.2, 0.6 * step_t))))
+        t += step_t
+    return times, ((t, min(hold, t + max(1.0, 0.9 * slide_t))) if slide else None)
+
+
+def steps_of(attrs: dict) -> tuple[int, bool]:
+    """(number of steps after the first, whether it slides) of a plot's attributes."""
+    sp = S.parse(attrs)
+    return max([len(c.steps) for c in sp.curves if c.steps] or [1]) - 1, sp.slide is not None
+
+
+class _Live:
+    """The stages one after another: each step bends the curve in about a second, then the
+    picture rests on it; the slide runs smoothly through what is left of the line. Labels with
+    {x}, {y} or {gap} show the live value while they slide."""
+
+    def __init__(self, node: Node, mob: PlotBlock, hold: float):
+        sp = mob.spec
+        n = max([len(c.steps) for c in sp.curves if c.steps] or [1])
+        stages = [_stage(node.attrs, k, None) for k in range(1, n)]
+        if sp.slide is not None:
+            stages.append(_stage(node.attrs, n - 1, sp.slide))
+        blocks = [mob] + [_aligned(PlotBlock(Node("plot", a)), mob) for a in stages]
+        if sp.slide is not None:
+            _keep_offsets(blocks[-2], blocks[-1])
+        self.mob, self.final = mob, blocks[-1]
+        self.morphs = [_Morph(a, b) for a, b in zip(blocks, blocks[1:])]
+        times, slide_seg = schedule(n - 1, sp.slide is not None, hold)
+        self.segs = [(t0, t1, self.morphs[k], False) for k, (t0, t1) in enumerate(times)]
+        if slide_seg is not None:
+            self.segs.append((*slide_seg, self.morphs[-1], True))
+        self.hold = hold
+        self.holder = Group()
+        self.cache: dict[str, Mobject] = {}
+        self.scale: dict[int, tuple[float, str]] = {}
+        self.shown: list[Mobject] = []
+        self.size = 0.9 * float(node.attrs.get("size", 30))   # the plot's label size
+        self.started = False
+
+    def animation(self) -> Animation:
+        return UpdateFromAlphaFunc(self.holder, self.update, run_time=self.hold, rate_func=linear, remover=True)
+
+    def _readouts(self, m: "_Morph") -> None:
+        """Labels written with {x}, {y}, {gap}: the number as it is right now."""
+        so, sn, t = m.old.spec, m.new.spec, m.t
+        for i, j, dot, lab, _ in m.points:
+            if i is None or j is None or "{" not in so.points[i][0] or lab.n is None:
+                continue
+            x = (1 - t) * so.points[i][1] + t * sn.points[j][1]
+            y = float(S.value(sn.points[j][2], [x])[0])
+            self._swap(lab, S.fill(sn.points[j][0], x=x, y=y))
+        for k, (i, j, vm, lab) in enumerate(m.gaps):
+            if i is None or j is None or "{" not in so.gaps[i][4] or lab.n is None:
+                continue
+            a, b, axis, v1, text = sn.gaps[j]
+            v = (1 - t) * so.gaps[i][3] + t * v1
+            self._swap(lab, S.fill(text, gap=_gap_value(a, b, axis, v, m.fn), x=v))
+        for i, j, vm, lab in m.marks:
+            if i is None or j is None or "{" not in so.marks[i][2] or lab.n is None:
+                continue
+            v = (1 - t) * so.marks[i][1] + t * sn.marks[j][1]
+            self._swap(lab, S.fill(sn.marks[j][2], x=v))
+
+    def _swap(self, lab: "_Label", text: str) -> None:
+        """Show ``text`` in the label's place (the label itself is hidden), at the size the label
+        was drawn after any layout scaling; each distinct readout is typeset once."""
+        if id(lab) not in self.scale:   # how much the layout scaled this plot's labels
+            ref = _label(lab.n.plot_text, self.size, "#ffffff")
+            self.scale[id(lab)] = (lab.hn / max(ref.get_height(), 1e-6), lab.n.get_fill_color())
+        k, color = self.scale[id(lab)]
+        if text not in self.cache:
+            m = _label(text, self.size, color).scale(k)
+            m.set_backstroke(current().bg, 5)
+            m.fix_in_frame()
+            self.cache[text] = m
+        for m in lab.mobs():
+            m.set_opacity(0)
+        self.shown.append(self.cache[text].copy().move_to(lab.n.get_center()))
+
+    def update(self, _m, alpha: float) -> None:
+        if not self.started:   # the moving copies stand in for the plot during the line
+            self.started = True
+            self.mob.set_submobjects([])
+        t = alpha * self.hold
+        k = max((n for n, seg in enumerate(self.segs) if seg[0] <= t + 1e-9), default=0)
+        t0, t1, morph, slide = self.segs[k]
+        a = float(np.clip((t - t0) / max(t1 - t0, 1e-6), 0, 1))
+        morph.update(None, a)
+        self.shown = []
+        if slide:
+            self._readouts(morph)
+        self.holder.set_submobjects([morph.group, *self.shown])
+        if alpha >= 1 - 1e-9:   # the plot is now the last stage, for the beats after this one
+            for key in STATE:
+                setattr(self.mob, key, getattr(self.final, key))
+            self.mob.set_submobjects(self.final.submobjects)
+            self.holder.set_submobjects([])
+
+
+def live(node: Node, mob, hold: float) -> Animation | None:
+    """Steps (``fn="P: a | b | c"``) and a slide (``slide="0 -> 2"``) play while the line is
+    spoken; a plot kept from the beat before (nothing changed) already played them."""
+    if not isinstance(mob, PlotBlock) or getattr(mob, "played", False):
+        return None
+    if not any(c.steps for c in mob.spec.curves) and mob.spec.slide is None:
+        return None
+    mob.played = True
+    return _Live(node, mob, hold).animation()

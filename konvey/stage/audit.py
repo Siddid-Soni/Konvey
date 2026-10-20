@@ -21,6 +21,7 @@ CELL = 0.1
 LINE_HALF = 0.07                # half-width of a drawn line on screen, in units
 MIN_OVERLAP = 0.08              # units^2 of a world body over a text box that counts
 MAX_TEXT_ITEMS = 9              # text-bearing things on screen at once (subtitle excluded)
+NOTE_REACH = 0.3                # a note's arrow must end this close (units) to something drawn
 
 _xs = np.arange(-FRAME_WIDTH / 2 + CELL / 2, FRAME_WIDTH / 2, CELL)
 _ys = np.arange(-FRAME_HEIGHT / 2 + CELL / 2, FRAME_HEIGHT / 2, CELL)
@@ -149,10 +150,92 @@ def audit_beat(index: int, leaves: dict, mobs: dict, field, frame, focus_ok: boo
         for j, _, rr in labels[k + 1:]:
             if _overlap(r, rr) > 0.3 * min((r[2] - r[0]) * (r[3] - r[1]), (rr[2] - rr[0]) * (rr[3] - rr[1])):
                 problems.append(f"{where}: the labels of {i} and {j} overlap; keep one, or pin them apart")
-    # 3. too much at once
+    # 3. notes pointing at empty space
+    problems += _loose_notes(where, leaves, mobs)
+    # 4. too much at once
     n_text = sum(1 for i, (n, _) in texts.items() if n.tag != "caption") + len(labels)
     if n_text > MAX_TEXT_ITEMS:
         problems.append(f"{where}: {n_text} pieces of text on screen at once (headline, readouts, "
                         f"labels); at most {MAX_TEXT_ITEMS}: the subtitle already says the line, so "
                         "show only what the eye needs now")
+    return problems
+
+
+def _runs(mob: Mobject) -> list[np.ndarray]:
+    """Its drawn pieces as polylines on screen (a curve cut at a pole stays two pieces)."""
+    out = []
+    for m in mob.get_family():
+        if not m.has_points():
+            continue
+        subs = m.get_subpaths() if hasattr(m, "get_subpaths") else [m.get_points()]
+        out += [np.asarray(sp, float)[:, :2] for sp in subs if len(sp)]
+    return [r for r in out if np.isfinite(r).all()]
+
+
+def _to_runs(q: np.ndarray, runs: list[np.ndarray]) -> tuple[float, np.ndarray]:
+    """(distance, nearest point) from q to the polylines."""
+    best = (np.inf, q)
+    for r in runs:
+        if len(r) == 1:
+            a, d = r[:1], np.zeros((1, 2))
+        else:
+            a, d = r[:-1], r[1:] - r[:-1]
+        L2 = np.maximum((d * d).sum(1), 1e-12)
+        t = np.clip(((q - a) * d).sum(1) / L2, 0, 1)
+        p = a + t[:, None] * d
+        k = int(np.linalg.norm(p - q, axis=1).argmin())
+        dist = float(np.linalg.norm(p[k] - q))
+        if dist < best[0]:
+            best = (dist, p[k])
+    return best
+
+
+def _ink(host_id: str, leaves: dict, mobs: dict) -> list[tuple[str, list[np.ndarray]]]:
+    """(name, drawn pieces) of what is on a picture: a plot's curves, points and dashed marks,
+    and every mark placed on it (dots, paths, arcs, braces); other pictures as a whole."""
+    host = mobs[host_id]
+    out = []
+    if hasattr(host, "lines") and hasattr(host, "spec"):   # a <plot>
+        for c, vm in zip(host.spec.curves, host.lines):
+            out.append((f"the curve {c.label or '(unnamed)'}", _runs(vm)))
+        for vm in (*host.dots, *host.marks, *getattr(host, "gaps", [])):
+            out.append(("a point or mark of the plot", _runs(vm)))
+    else:
+        out.append((f"<{leaves[host_id].tag} id={host_id}>", _runs(host)))
+    for i, n in leaves.items():
+        if n.tag != "note" and i in mobs and n.attrs.get("on", "").strip().lstrip("#") == host_id:
+            out.append((f"<{n.tag} id={i}>", _runs(mobs[i])))
+    return [(name, r) for name, r in out if r]
+
+
+def _loose_notes(where: str, leaves: dict, mobs: dict) -> list[str]:
+    """A note's arrow that ends in empty space points at nothing the viewer can see (an arrow to
+    (1, 3.5) next to a curve, not on it): name the nearest drawn thing so the point can move onto it."""
+    problems = []
+    for i, n in leaves.items():
+        host_id = n.attrs.get("on", "").strip().lstrip("#")
+        aims = getattr(mobs.get(i), "aims", None)
+        if n.tag != "note" or not aims or host_id not in mobs:
+            continue
+        ink = _ink(host_id, leaves, mobs)
+        if not ink:
+            continue
+        host = mobs[host_id]
+        if not callable(getattr(host, "point", None)):
+            continue
+        for x, y in aims:
+            q = np.asarray(host.point(x, y), float)[:2]   # where it is now, after the camera
+            d, near, name = min(((*_to_runs(q, runs), name) for name, runs in ink), key=lambda t: t[0])
+            if d <= NOTE_REACH:
+                continue
+            hint = ""
+            o, ex, ey = (np.asarray(host.point(*v), float)[:2] for v in ((0, 0), (1, 0), (0, 1)))
+            try:
+                nx, ny = np.linalg.solve(np.c_[ex - o, ey - o], near - o)
+                hint = f" (nearest: {name} at {nx:.3g},{ny:.3g})"
+            except np.linalg.LinAlgError:
+                pass
+            problems.append(f'{where}: <note id={i}> at="{x:g},{y:g}" points at empty space on '
+                            f"{host_id}{hint}: put at= exactly on the thing the note is about (a point of "
+                            "its curve, y = f(x), a dot, or a mark such as plot mark=\"x=1\")")
     return problems

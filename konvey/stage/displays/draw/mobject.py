@@ -482,6 +482,19 @@ def _relabel(a: Mobject, b: Mobject) -> Animation:
                           FadeIn(b, rate_func=squish_rate_func(smooth, 0.45, 1.0)))
 
 
+def _point(self, x: float, y: float) -> np.ndarray:
+    """Where the drawing's own (x, y) is on the page now, after the layout has fitted it."""
+    return self.frame.get_center() + self.P(x, y) * (self.frame.get_width() / self.width)
+
+
+def _bounds(self) -> tuple[float, float, float, float]:
+    (a, b, _), (c, d, _) = self.frame.get_corner(DL), self.frame.get_corner(UR)
+    return a, b, c, d
+
+
+DrawBlock.point, DrawBlock.bounds = _point, _bounds
+
+
 def build(node: Node, world=None) -> DrawBlock:
     return DrawBlock(node)
 

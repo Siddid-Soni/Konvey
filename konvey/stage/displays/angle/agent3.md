@@ -1,0 +1,1 @@
+| `angle` | the angle at a corner between the lines to two points: a small arc with its name (a square corner at 90°); takes no room | `on`, `at` (the corner), `from`, `to` (points on its two sides), `label="θ"`, `radius` (0.5 u), `color`, `dim="true"` |

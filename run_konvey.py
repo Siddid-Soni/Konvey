@@ -28,10 +28,10 @@ def parse_args(argv=None) -> argparse.Namespace:
                    help="Prompt mode for all three agents (default: few-shot; CoT is auto-retried on validation failure)")
     p.add_argument("--duration", type=float, default=90.0, help="Target video duration in seconds")
     p.add_argument("--out-dir", default="out/konvey-run", help="Where agent{1,2}-output.json + agent3-S*.html go")
-    p.add_argument("--provider", default=None, choices=["opencode", "opencode-go", "minimax"],
+    p.add_argument("--provider", default=None, choices=["opencode", "opencode-go", "minimax", "inception"],
                    help="Override KONVEY_PROVIDER (default: opencode if OPENCODE_API_KEY is set, else minimax)")
     p.add_argument("--model-id", default=None,
-                   help="Model id for the active provider (default: glm-5.3 on opencode, muse-spark-1.3-contributor on opencode-go, MiniMax-M3 on minimax)")
+                   help="Model id for the active provider (default: glm-5.3 on opencode, muse-spark-1.3-contributor on opencode-go, MiniMax-M3 on minimax, mercury-3 on inception)")
     p.add_argument("--quiet", action="store_true", help="Suppress progress output")
     p.add_argument("--no-grounding", action="store_true",
                    help="Skip worked_examples / typed objects / no-invented-numbers checks")

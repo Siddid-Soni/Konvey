@@ -1,0 +1,1 @@
+| `angle_mark` | `{"on": "<picture id>", "at": [x, y], "from": [x, y], "to": [x, y], "label"?: "θ"}` | the angle at a corner of a flat figure on a plane or plot (a right angle shows as a square corner) |

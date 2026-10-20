@@ -80,7 +80,14 @@ def attach(node: Node, mob: ArrowBlock, resolve, obstacles=lambda *skip: []) -> 
         chord = (spine.get_start() + spine.get_end()) / 2
         if np.linalg.norm(mid - chord) > 0.05:   # a bent arrow: its label outside the bend
             perp = normalize(mid - chord)
-        lab.next_to(mid, perp, buff=0.15)
+        from ... import marks
+        from ...attach import _along
+
+        # outside first, else clear of what is there, its own arrow included; a dark outline keeps
+        # it readable where it has to sit near a line
+        own = _along(spine, step=0.08, r=0.06)
+        marks.halo(lab)
+        marks.place_label(lab, mid, perp, obstacles() + own, gap=0.2)
         out.add(lab)
     return out
 

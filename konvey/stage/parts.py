@@ -33,7 +33,9 @@ _CELL = re.compile(r"^(\d+)\s*,\s*(\d+)$")
 
 
 def _norm(s: str) -> str:
-    return " ".join(str(s).strip().strip('"').split()).lower()
+    """Compared loosely: case, and spaces around punctuation (``1,000:1`` = ``1,000 : 1``)."""
+    s = " ".join(str(s).strip().strip('"').split()).lower()
+    return re.sub(r"\s*([^\w\s])\s*", r"\1", s)
 
 
 def _indexed(cells, texts, name: str):

@@ -26,7 +26,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--out-dir", required=True)
     p.add_argument("--max-sec", type=float, default=300,
                    help="longest the video may be (a limit, not a target)")
-    p.add_argument("--provider", default=None, choices=["opencode", "opencode-go", "minimax"])
+    p.add_argument("--provider", default=None, choices=["opencode", "opencode-go", "minimax", "inception"])
     p.add_argument("--model-id", default="claude-haiku-5-5", help="Model id for the active provider")
     p.add_argument("--theme", default="editorial", help="Visual theme (editorial, classic)")
     p.add_argument("--highlight", default=None,

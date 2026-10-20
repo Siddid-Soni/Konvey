@@ -228,6 +228,38 @@ def test_resolve_model_opencode_auto_selected(monkeypatch):
     assert model.provider == "OpenCode" and model.id == "kimi-k3"
 
 
+def test_resolve_model_inception(monkeypatch):
+    from agno.models.openai.like import OpenAILike
+
+    from konvey.agents import resolve_model
+
+    monkeypatch.setattr("konvey.agents.load_dotenv", lambda: None)
+    monkeypatch.delenv("INCEPTION_MODEL_ID", raising=False)
+    monkeypatch.delenv("INCEPTION_BASE_URL", raising=False)
+    monkeypatch.delenv("KONVEY_EFFORT", raising=False)
+    monkeypatch.setenv("KONVEY_PROVIDER", "inception")
+    monkeypatch.setenv("INCEPTION_API_KEY", "dummy")
+    model = resolve_model()
+    assert isinstance(model, OpenAILike)
+    assert model.base_url == "https://api.inceptionlabs.ai/v1"
+    assert model.id == "mercury-3"
+    assert model.reasoning_effort == "medium"
+    assert model.max_completion_tokens == 131072
+    assert model.supports_native_structured_outputs is False
+
+
+def test_inception_retries_rate_limits():
+    from agno.exceptions import ModelProviderError
+
+    from konvey.agents import InceptionChat
+
+    model = InceptionChat(id="mercury-3", api_key="dummy")
+    limit = ModelProviderError("Rate limit reached: output token limit exceeded", status_code=429)
+    assert not super(InceptionChat, model)._is_retryable_error(limit)   # agno alone gives up
+    assert model._is_retryable_error(ModelProviderError.classify(limit))
+    assert not model._is_retryable_error(ModelProviderError("bad request", status_code=400))
+
+
 def test_resolve_model_explicit_passthrough():
     from konvey.agents import resolve_model
 

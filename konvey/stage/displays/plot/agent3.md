@@ -1,4 +1,4 @@
-| `plot` | graphs of functions y = f(x) on real axes, traced exactly by the engine | `fn="f: x^2; g: 2x - 1"` (`label: expression`, `;` between curves), `x="-2pi,2pi"`, `y="-2,2"`, `color="ink,accent"` (one per curve), `points="E: 4,6; A: 2,supply"`, `mark="x=pi: a; y=4: price"`, `gap="supply,demand@y=4: shortage"`, `shade="demand,supply: 2,4: lost trade"`, `xlabel`, `ylabel`, `w`/`h` (axes size in u) |
+| `plot` | graphs of functions y = f(x) on real axes, traced exactly by the engine | `fn="f: x^2; g: 2x - 1"` (`label: expression`, `;` between curves), `x="-2pi,2pi"`, `y="-2,2"`, `color="ink,accent"` (one per curve), `points="E: 4,6; A: 2,supply"`, `mark="x=pi: a; y=4: price"`, `gap="supply,demand@y=4: shortage"`, `shade="demand,supply: 2,4: lost trade"`, `fn="S: a \| b \| c"` (steps played during the line), `slide="0 -> 2"`, `drop="true"`, `{x}` `{y}` `{gap}` in labels (live numbers), `xlabel`, `ylabel`, `w`/`h` (axes size in u) |
 
 ### `<plot>`: function graphs
 
@@ -18,3 +18,15 @@ Never draw a function with `<draw>` lines.
 - Same id, change only what changes: the plot re-traces in place. A changed `fn` (one more
   term) bends into the new curve; a `mark`, `points` or `gap` value slides; a new curve draws in;
   a new range rescales smoothly. Keep curve order, colours and `xlabel`/`ylabel` across beats and scenes (the first names stay).
+- **Motion during the line** (3b1b's slider: the picture changes while it is talked about):
+  - Steps: `fn="sin x: sin(x); S_1 | S_2 | S_3: sin(x) | sin(x) + sin(3x)/3 | sin(x) + sin(3x)/3 + sin(5x)/5"`.
+    The curve enters as the first expression and bends through the rest, one step about every
+    second, while the line is spoken: terms added one by one, or a knob turned
+    (`1 + 0.5x^2 | 1 | 1 - 0.5x^2`). One label, or one per step between `|`. Give the beat
+    room (`t`) for its steps; the next beat starts from the last step (write it plain there).
+  - Slide: `slide="0 -> 2"` moves everything of this plot written at x=0 (a `points` dot, an
+    `x=0` mark, a `@x=0` gap) to x=2 during the line, smoothly; points on a curve ride along it.
+    With `drop="true"` each point has a dashed line down to the x axis.
+  - Live numbers: a point's name, a gap's or a mark's label may hold `{x}`, `{y}` (the point's
+    height) or `{gap}` (the gap's length): `points="x = {x}: 0,f"`, `gap="f,g@x=0: error {gap}"`.
+    They count as it slides, and show each step's value.

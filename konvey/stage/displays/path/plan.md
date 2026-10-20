@@ -1,0 +1,1 @@
+| `path` | `{"on": "<picture id>", "through": [[x, y], …] or "hits.1-4", "closed"?, "fill"?, "extend"?, "dashed"?, "around"?, "label"?}` | a line through points of a picture: a run's path hop by hop (give one more point each line), a segment or side, a shaded region, a tangent line (`extend`), a dashed drop to an axis, a loop round a run of cells. Same id across lines |

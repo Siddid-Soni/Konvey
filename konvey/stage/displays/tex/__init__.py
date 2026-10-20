@@ -50,6 +50,9 @@ def _check_drawn(where: str, obj, leaves) -> list[str]:
     blob = "\n".join({squash(n.text) for n in leaves if n.tag != "bars"})
     if tex and squash(tex) not in blob:
         return [f"{where}: <tex> {tex!r} not drawn verbatim"]
+    follow = str(obj.data.get("follow") or "").strip()
+    if follow and not any(n.tag == "tex" and n.attrs.get("follow", "").strip().lstrip("#") == follow for n in leaves):
+        return [f'{where}: <tex follow="{follow}"> (the planned formula changes with that plot\'s steps)']
     return []
 
 

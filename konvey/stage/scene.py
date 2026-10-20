@@ -31,7 +31,7 @@ from .world import (CameraState, World, WorldState, apply_camera, lerp_camera, l
 from scipy.spatial.transform import Rotation, Slerp
 
 WORDS_PER_SEC = 2.7   # narration pace used to size beats that give no hold=
-BAR_OPEN = 0.55      # letterbox bar height once open (units)
+from .marks import BAR_OPEN   # letterbox bar height once open (units)  # noqa: E402
 
 
 def _reshaped(n, mob, box, world):
@@ -50,6 +50,29 @@ def _reshaped(n, mob, box, world):
     try:
         return build_leaf(n, world)
     except Exception:   # noqa: BLE001 - the picture at its own proportions is still right
+        n.attrs.clear()
+        n.attrs.update(attrs)
+        return mob
+
+
+def _redrawn(n, mob, box, world, grow: bool):
+    """A picture drawn to a size (``layout.REDRAW``) is rebuilt at the size the layout gives it
+    instead of being scaled there, so its numbers, names and line widths keep their size as it
+    grows (3b1b sizes the axes, never the text)."""
+    view = getattr(mob, "view", None)
+    if view is None:
+        return mob
+    k = min(box.w / max(mob.get_width(), 1e-6), box.h / max(mob.get_height(), 1e-6))
+    if (abs(k - 1) < 0.02 and not grow) or (k > 1 and not grow):
+        return mob
+    attrs = dict(n.attrs)
+    if grow:   # alone in its room: it takes the whole box, its axes running to the edges
+        n.attrs["w"], n.attrs["h"], n.attrs["_fill"] = f"{box.w:.4g}", f"{box.h:.4g}", "1"
+    else:
+        n.attrs["w"], n.attrs["h"] = f"{view.get_width() * k:.4g}", f"{view.get_height() * k:.4g}"
+    try:
+        return build_leaf(n, world)
+    except Exception:   # noqa: BLE001 - scaled is still right, only its text grows
         n.attrs.clear()
         n.attrs.update(attrs)
         return mob
@@ -238,7 +261,8 @@ class StageScene(Scene):
                     msg = str(e).strip().replace("\n", " ")
                     raise BeatError(f"beat {b.index} <{n.tag} id={i}>: {type(e).__name__}: {msg}") from e
             built.append(mobs)
-            sizes[b.index] = {i: (m.get_width(), m.get_height()) for i, m in mobs.items()}
+            # an element that grows while the line is spoken (a formula gaining terms) asks for its largest size
+            sizes[b.index] = {i: getattr(m, "room", None) or (m.get_width(), m.get_height()) for i, m in mobs.items()}
         boxes = layout.solve(self.beats, sizes, strict=self.strict_layout,
                              dump=str(Path(self.beats_file).with_suffix(".layout.html")))
         for b, mobs, bx in zip(self.beats, built, boxes):
@@ -249,11 +273,23 @@ class StageScene(Scene):
                 elif not attached(n):
                     if n.tag in layout.STRETCH:
                         mobs[i] = _reshaped(n, mobs[i], bx[i], self.world)
+                    if n.tag in layout.REDRAW:
+                        mobs[i] = _redrawn(n, mobs[i], bx[i], self.world, layout.growable(n) or n.tag in layout.WIDE)
                     fit(mobs[i], bx[i], grow=layout.growable(n))
-            place(nodes, mobs)   # against the parts they name, now that those are placed
-            view.apply_focus(b.attrs, nodes, mobs, b.index)
+                    if getattr(mobs[i], "room", None):   # it starts at the left of the room it will fill
+                        k = mobs[i].get_height() / max(mobs[i].room_h0, 1e-6)
+                        mobs[i].shift(RIGHT * (bx[i].x - mobs[i].room[0] * k / 2 - mobs[i].get_left()[0]))
+            place(nodes, mobs, strict=self.strict_layout)   # against the parts they name, now that those are placed
             bars_h = BAR_OPEN if themes.current().letterbox else 0.0
-            c, z = view.camera(b, nodes, mobs, bars_h)
+            try:
+                view.apply_focus(b.attrs, nodes, mobs, b.index)
+                c, z = view.camera(b, nodes, mobs, bars_h)
+            except BeatError:
+                if self.strict_layout:   # the check names it; a render keeps the beat, unframed
+                    raise
+                for k in ("view", "zoom", "focus"):
+                    b.attrs.pop(k, None)
+                c, z = view.camera(b, nodes, mobs, bars_h)
             self.views.append((tuple(np.round(c, 4)), round(z, 4)))
             view.apply_camera(b.attrs, nodes, mobs, c, z)
             view.hide_cut(b, nodes, mobs, bars_h)
@@ -440,6 +476,8 @@ class StageScene(Scene):
             live = {**mobs, **on_screen}
             return motion.assemble(n, mobs[n.id], lambda ref: resolve(
                 ref, live, f"beat {b.index} <tex id={n.id}> from="))
+        if not mobs[n.id].family_members_with_points():   # a mark the render left out (its target is missing)
+            return FadeIn(mobs[n.id], run_time=T)
         return enter_anim(n, mobs[n.id], T)
 
     def _true_fit(self, c: CameraState, pts, b: Beat, bx) -> None:
@@ -499,7 +537,10 @@ class StageScene(Scene):
         # displays that keep moving while the line is spoken (a simulation running)
         for i, n in nodes.items():
             live = displays.hook(n.tag, "live")
-            anim = live(n, on_screen[i], hold) if live is not None and i in on_screen else None
+            if live is None or i not in on_screen:
+                continue
+            # a hook that follows another element (a formula changing with its plot) gets the beat's nodes
+            anim = live(n, on_screen[i], hold, nodes) if getattr(live, "wants_beat", False) else live(n, on_screen[i], hold)
             if anim is not None:
                 emph.append(anim)
         cube = b.world.get("cube")

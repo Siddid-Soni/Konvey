@@ -30,9 +30,12 @@ def test_expressions_are_normalised_and_still_never_evaluated():
 
 def test_ticks_count_in_pi_when_the_range_is_in_pi():
     labels = [t for _, t in S.ticks(-2 * np.pi, 2 * np.pi, 9, True)]
-    assert labels == ["−2π", "−3π/2", "−π", "−π/2", "0", "π/2", "π", "3π/2", "2π"]
-    assert [t for _, t in S.ticks(0, 10, 7, False)] == ["0", "2", "4", "6", "8", "10"]
-    assert [t for _, t in S.ticks(-1, 1, 6, False)][0] == "−1.0"
+    assert labels == ["−2π", "−π", "0", "π", "2π"]   # landmarks, as 3b1b numbers them
+    assert [t for _, t in S.ticks(-np.pi, np.pi, 9, True)] == ["−π", "−π/2", "0", "π/2", "π"]
+    assert [t for _, t in S.ticks(0, 10, 7, False)] == ["0", "5", "10"]
+    assert [t for _, t in S.ticks(0, 10, 12, False)] == ["0", "2", "4", "6", "8", "10"]
+    assert [t for _, t in S.ticks(-1, 1, 6, False)] == ["−1", "0", "1"]
+    assert [t for _, t in S.ticks(-1, 1, 12, False)][0] == "−1.0"
 
 
 def test_a_diverging_polynomial_leaves_cleanly_at_the_box():
@@ -203,3 +206,28 @@ def test_an_unlabelled_shade_moves_between_beats():
     anim = morph(a, b)
     anim.begin()
     anim.interpolate(0.5)   # no label in either beat: nothing to move, and no crash
+
+
+def test_steps_slide_and_live_numbers_parse():
+    sp = S.parse({"fn": "sin x: sin(x); S_1 | S_2: sin(x) | sin(x) + sin(3x)/3", "x": "-3,3",
+                  "slide": "0 -> 2", "drop": "true"})
+    c = sp.curves[1]
+    assert c.label == "S_1" and [l for l, _ in c.steps] == ["S_1", "S_2"]
+    assert sp.curve("S_2") is c and sp.slide == (0.0, 2.0) and sp.drop
+    assert S.fill("error {gap} at {x}", gap=0.0026, x=2) == "error 0.0026 at 2"
+    assert [S.live_value(v) for v in (2047, 2.718281, -1, 3.3e-7)] == ["2047", "2.718", "−1", "0.00000033"]
+    with pytest.raises(BeatError):
+        S.parse({"fn": "S: sin(x) | ", "x": "-3,3"})
+    with pytest.raises(BeatError):
+        S.parse({"fn": "x", "x": "-3,3", "slide": "0 to 2"})
+
+
+@manim
+def test_a_stage_moves_what_sat_at_the_slide_start():
+    from konvey.stage.displays.plot.mobject import _stage
+
+    a = {"id": "p", "fn": "f | g: x | x^2", "x": "-3,3", "points": "A: 0,f", "gap": "f,g@x=0: e {gap}",
+         "slide": "0 -> 2"}
+    st = _stage(a, 1, (0.0, 2.0))
+    assert st["fn"] == "g: x^2" and "slide" not in st
+    assert st["points"] == "A: 2.0,g" and st["gap"] == "g,g@x=2.0: e {gap}"

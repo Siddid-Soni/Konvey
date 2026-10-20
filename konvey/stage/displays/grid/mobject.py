@@ -11,7 +11,7 @@ from manimlib import *  # noqa: F401,F403
 from ...match import as_num, split_list
 from ...tree import BeatError, Node
 from ...theme import current
-from ..base import CELL, LIT_W, lit_color, cell_width, index_set, _label, Block, _parts, _swap
+from ..base import CELL, LIT_W, lit_color, cell_width, index_set, _label, Block, _parts, _swap, tidy_number
 from . import SWEEPS, struck
 
 MAX_STEPS = 9    # a window further along than this jumps straight to its new place
@@ -93,6 +93,11 @@ class GridBlock(Block):
             raise BeatError(f"{where} needs rows= and cols= (integers)") from e
         raw = node.attrs.get("values", "")
         values = split_list(raw, rows=True) if raw.strip() else [""] * (rows * cols)
+        if len(values) < rows * cols and values and not str(values[-1]).strip() and rows * cols - len(values) < cols:
+            values = list(values) + [""] * (rows * cols - len(values))   # a miscounted run of empty cells at the end
+        n = rows * cols
+        if len(values) > n and not any(str(v).strip() for v in values[n:]):
+            values = list(values)[:n]   # too many empty cells at the end: the same miscount
         if len(values) != rows * cols:
             raise BeatError(f"{where} has {len(values)} values for {rows}x{cols} = {rows * cols} cells")
         hr = index_set(node.attrs.get("highlight-rows", ""), rows, "highlight-rows")
@@ -150,6 +155,7 @@ class GridBlock(Block):
             (abs(x) for x in map(as_num, values) if x is not None), default=1.0) or 1.0
         lit_any = bool(hr or hc)
         self.cells = VGroup()
+        self.cols = cols
         for r in range(rows):
             for c in range(cols):
                 k = r * cols + c
@@ -171,7 +177,7 @@ class GridBlock(Block):
                         box.set_stroke(lc, LIT_W)
                 if k in gone:
                     box.set_fill(th.palette[2], 0.12)
-                txt = _label(values[k], size, ink)
+                txt = _label(tidy_number(values[k]), size, ink)
                 if txt.get_width() > col_w[c] * 0.85:
                     txt.set_width(col_w[c] * 0.85)
                 txt.label_text = values[k]
@@ -276,6 +282,30 @@ class GridBlock(Block):
         boxes = [self.cells[k * cols + c][0] for c in range(cols)] if by_row else \
             [self.cells[r * cols + k][0] for r in range(rows)]
         return (np.min([b.get_corner(DL) for b in boxes], axis=0), np.max([b.get_corner(UR) for b in boxes], axis=0))
+
+
+def _point(self, row: float, col: float) -> np.ndarray:
+    """The centre of cell (row, col) on the page now; fractions fall between cells, so a mark can
+    run along a diagonal or past the edge (row -0.5 is the top edge of the grid)."""
+    cols = self.cols
+    rows = len(self.cells) // cols
+    c00 = self.cells[0][0].get_center()
+    dx = (self.cells[1][0].get_center() - c00) if cols > 1 else np.array([self.cells[0][0].get_width(), 0, 0])
+    dy = (self.cells[cols][0].get_center() - c00) if rows > 1 else np.array([0, -self.cells[0][0].get_height(), 0])
+    return c00 + col * dx + row * dy
+
+
+def _cells(self) -> tuple[int, int]:
+    """(rows, cols): a point "row,col" names cell row, col; both count from 0."""
+    return len(self.cells) // self.cols, self.cols
+
+
+def _bounds(self) -> tuple[float, float, float, float]:
+    (a, b, _), (c, d, _) = self.cells.get_corner(DL), self.cells.get_corner(UR)
+    return a, b, c, d
+
+
+GridBlock.point, GridBlock.bounds, GridBlock.cell_count = _point, _bounds, _cells
 
 
 def _badge(text: str, size: float) -> VGroup:

@@ -46,9 +46,9 @@ def page_size(attrs: dict) -> tuple[float, float]:
 
 
 def _cites(n) -> set[str]:
-    """Ids of the elements a leaf sits on or is built from (of, from, to; tex from="sym: id>part")."""
+    """Ids of the elements a leaf sits on or is built from (of, on, from, to; tex from="sym: id>part")."""
     out = set()
-    for a in ("of", "from", "to"):
+    for a in ("of", "on", "from", "to"):
         for ref in n.attrs.get(a, "").split(";"):
             ref = ref.partition(":")[2] if n.tag == "tex" and a == "from" else ref
             head = ref.partition(">")[0].strip().lstrip("#")
@@ -166,6 +166,15 @@ def _fade(m: Mobject, k: float) -> None:
                 sm.data[key][:, 3] *= k
 
 
+def _visible(m: Mobject) -> bool:
+    for sm in m.get_family():
+        if sm.has_points():
+            for key in ("fill_rgba", "stroke_rgba"):
+                if key in sm.data.dtype.names and (sm.data[key][:, 3] > 0).any():
+                    return True
+    return False
+
+
 def apply_focus(attrs: dict, nodes: dict, mobs: dict, index: int) -> None:
     """Dim every element except the parts ``focus`` names (and attached marks on them)."""
     raw = attrs.get("focus", "").strip()
@@ -177,10 +186,16 @@ def apply_focus(attrs: dict, nodes: dict, mobs: dict, index: int) -> None:
         head, _, part = r.partition(">")
         head = head.strip()
         found = resolve(r, mobs, f'beat {index} focus="{raw}"')
+        # a bare coordinate (plot>x=2 with nothing drawn there) is an invisible point: dimming
+        # all but it dims the whole screen, the readout the line is about too, so it is skipped
+        if part.strip() and not _visible(found):
+            continue
         if not part.strip():
             keep[head] = None
         elif keep.get(head, []) is not None:
             keep.setdefault(head, []).append(found)
+    if not keep:
+        return
     for i, m in mobs.items():
         n = nodes[i]
         if n.tag in FIXED or i in keep and keep[i] is None:

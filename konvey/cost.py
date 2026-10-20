@@ -43,6 +43,9 @@ PRICES: dict[str, Any] = {
     # Zen pay-as-you-go rates (https://opencode.ai/docs/zen/) for models used outside the Go list
     "minimax-m3": Price(0.30, 1.20, 0.06),
     "MiniMax-M3": Price(0.30, 1.20, 0.06),
+    # Inception direct (https://docs.inceptionlabs.ai/get-started/models, 2026-10-20):
+    # launch promo, half the regular 0.20 / 0.70 / 0.02
+    "mercury-3": Price(0.10, 0.35, 0.01),
 }
 
 

@@ -112,7 +112,47 @@ def check_static(html: str, scene: Scene) -> list[str]:
     for disp in displays.all_displays():
         if disp.check_scene is not None:
             problems += disp.check_scene(scene, beats)
+    problems += _points_off_their_curve(beats)
     return problems
+
+
+def _points_off_their_curve(beats) -> list[str]:
+    """Points of a plotted curve drawn in a separate ``<draw>`` float in empty space beside the
+    graph ("x=0, x=0.5, x=1" with no axes): they are marks on the plot, at its coordinates."""
+    import numpy as np
+
+    from .displays.plot import spec as PS
+
+    out = []
+    for b in beats:
+        leaves = b.leaves().values()
+        curves = []
+        for n in leaves:
+            if n.tag == "plot":
+                try:
+                    sp = PS.parse(n.attrs)
+                except BeatError:
+                    continue
+                curves += [(n.id, c, sp.y) for c in sp.curves]
+        for n in leaves:
+            if n.tag != "draw" or not curves:
+                continue
+            pts = []
+            for c in n.walk():
+                try:
+                    pts.append((float(c.attrs["x"]), float(c.attrs["y"])))
+                except (KeyError, ValueError):
+                    continue
+            for pid, c, (y0, y1) in curves:
+                on = [(x, y) for x, y in pts
+                      if abs(float(np.asarray(c.f(np.array([x])))[0]) - y) <= 0.02 * (y1 - y0)]
+                if len(on) >= 2:
+                    at = "; ".join(f"{x:g},{y:g}" for x, y in on)
+                    out.append(f'beat {b.index} <draw id={n.id}>: its points {at} lie on <plot id={pid}>\'s '
+                               f'curve {c.label or c.expr!r}; draw them on the plot as <dots on="{pid}" '
+                               f'at="{at}" labels="…">, not in a separate drawing beside it')
+                    break
+    return out[:3]
 
 
 def apply_plan_state(html: str, scene: Scene) -> str:
@@ -126,7 +166,7 @@ def apply_plan_state(html: str, scene: Scene) -> str:
         objs = [(o, d) for o, d in objs if d is not None and d.apply_plan is not None]
         if not objs:
             continue
-        for m in re.finditer(r"<beat\b([^>]*)>(.*?)</beat>", html, re.S):
+        for m in re.finditer(r'<beat\b((?:[^>"]|"[^"]*")*)>(.*?)</beat>', html, re.S):
             if squash(attrs_of(m.group(1)).get("vo", "")) != squash(beat.vo_line):
                 continue
             body = m.group(2)
@@ -164,7 +204,7 @@ def _apply_cameras(html: str, scene: Scene) -> str:
             want["focus"] = ", ".join(focus) if isinstance(focus, list) else str(focus)
         if not want:
             continue
-        for m in re.finditer(r"<beat\b[^>]*>", html):
+        for m in re.finditer(r'<beat\b(?:[^>"]|"[^"]*")*>', html):
             if squash(attrs_of(m.group(0)[5:-1]).get("vo", "")) != squash(beat.vo_line):
                 continue
             tag = m.group(0)

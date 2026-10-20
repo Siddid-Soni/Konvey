@@ -13,6 +13,8 @@ configurable: pass any Agno ``Model`` (or ``"provider:id"`` string), or leave
   OpenCode Zen's OpenAI-compatible endpoint (``/chat/completions``).
 - ``KONVEY_PROVIDER=opencode-go``: same, on the OpenCode Go subscription.
 - ``KONVEY_PROVIDER=minimax``: MiniMax with ``MINIMAX_API_KEY``.
+- ``KONVEY_PROVIDER=inception``: Inception Labs' OpenAI-compatible endpoint with
+  ``INCEPTION_API_KEY`` (diffusion LLMs; ``INCEPTION_MODEL_ID``, default mercury-3).
 
 Model id: ``OPENCODE_MODEL_ID`` (default glm-5.3 on Zen,
 muse-spark-1.3-contributor on Go) for OpenCode,
@@ -56,6 +58,9 @@ OPENCODE_DEFAULT_MODEL_IDS = {
     "opencode-go": "muse-spark-1.3-contributor",  # Go-only; prompts may train Meta models
 }
 OPENCODE_USER_AGENT = "konvey/0.1.0"
+INCEPTION_BASE_URL = "https://api.inceptionlabs.ai/v1"
+INCEPTION_DEFAULT_MODEL_ID = "mercury-3"
+INCEPTION_EFFORT = "medium"
 RESPONSES_API_PREFIXES = ("muse-", "gpt-", "grok-")
 # Reasoning effort sent per model family (models.dev: haiku low..max, deepseek flash
 # low/high/max). None: nothing is sent and each runs at its server default (haiku: medium),
@@ -81,6 +86,17 @@ class ReasoningOpenAILike(OpenAILike):
         return formatted
 
 
+class InceptionChat(OpenAILike):
+    """OpenAILike that waits out Inception's per-minute token limits.
+
+    The 429 reads "output token limit exceeded", which agno takes for a context-window error
+    ("token limit") and does not retry.
+    """
+
+    def _is_retryable_error(self, error) -> bool:
+        return error.status_code == 429 or super()._is_retryable_error(error)
+
+
 # Model families whose reasoning has to be resent with the next request.
 RESEND_REASONING_PREFIXES = ("deepseek-",)
 
@@ -100,6 +116,8 @@ def reasoning_effort(model_id: str) -> Optional[str]:
 
 
 def model_id_env(provider: str) -> str:
+    if provider == "inception":
+        return "INCEPTION_MODEL_ID"
     return "OPENCODE_MODEL_ID" if provider in OPENCODE_BASE_URLS else "KONVEY_MODEL_ID"
 
 
@@ -182,7 +200,29 @@ def resolve_model(model: Optional[ModelLike] = None) -> Union[str, object]:
         )
     if provider == "minimax":
         return MiniMax(id=os.getenv("KONVEY_MODEL_ID", DEFAULT_MODEL_ID))
-    raise ValueError(f"Unknown KONVEY_PROVIDER {provider!r}; use opencode, opencode-go or minimax")
+    if provider == "inception":
+        api_key = os.getenv("INCEPTION_API_KEY")
+        if not api_key:
+            raise RuntimeError("KONVEY_PROVIDER=inception needs INCEPTION_API_KEY (get one at https://platform.inceptionlabs.ai)")
+        return InceptionChat(
+            id=os.getenv("INCEPTION_MODEL_ID", INCEPTION_DEFAULT_MODEL_ID),
+            name="Inception",
+            provider="Inception",
+            api_key=api_key,
+            base_url=os.getenv("INCEPTION_BASE_URL", INCEPTION_BASE_URL),
+            # Prompt-guided JSON, the same path as the other providers (validators.py parses it).
+            supports_native_structured_outputs=False,
+            # instant | low | medium | high; mercury-3's server default is low.
+            reasoning_effort=os.getenv("KONVEY_EFFORT") or INCEPTION_EFFORT,
+            # The cap counts reasoning; at medium the server default (65,536) can all go on
+            # reasoning and leave no document. 131,072 is mercury-3's maximum.
+            max_completion_tokens=131072,
+            # Free tier: 100k output tokens a minute, which three scenes in parallel pass.
+            retries=6,
+            delay_between_retries=15,
+            exponential_backoff=True,
+        )
+    raise ValueError(f"Unknown KONVEY_PROVIDER {provider!r}; use opencode, opencode-go, minimax or inception")
 
 
 def create_knowledge_agent(

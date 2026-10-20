@@ -10,6 +10,13 @@ model) traces every curve, finds where a curve meets a level, and places ticks:
     mark="x=pi/2: a; y=4: price"          dashed guide lines across the axes
     gap="supply,demand@y=4: shortage"     the distance between two curves at a level / an x
     shade="demand,supply: 2,4: lost"      the region between two curves (or a curve and a level)
+    fn="P_0 | P_2 | P_4: 1 | 1 - x^2/2 | 1 - x^2/2 + x^4/24"
+                                          steps: the curve enters as the first and, while the line
+                                          is spoken, bends through the rest (terms added one by one)
+    slide="0 -> 2"                        while the line is spoken (after any steps) every point,
+                                          x mark and @x gap at x=0 rides to x=2
+    drop="true"                           a dashed line from each point down to the x axis
+    labels with {x}, {y} (a point), {gap} (an @x gap): the live value, as it slides
 """
 
 from __future__ import annotations
@@ -101,6 +108,9 @@ class Curve:
     label: str
     expr: str
     f: object
+    # ``a | b | c``: the stages it bends through during the line, [(label, expr)]; label/expr/f
+    # are the stage shown (the first, unless a live hold moved it on)
+    steps: list[tuple[str, str]] = field(default_factory=list)
 
 
 @dataclass
@@ -114,10 +124,13 @@ class Spec:
     marks: list[tuple[str, float, str]] = field(default_factory=list)       # "x"|"y", value, label
     gaps: list[tuple[object, object, str, float, str]] = field(default_factory=list)
     shades: list[tuple[object, object, float, float, str]] = field(default_factory=list)
+    slide: tuple[float, float] | None = None
+    drop: bool = False
 
     def curve(self, ref: str) -> Curve | None:
         key = squash(ref)
-        return next((c for c in self.curves if key and squash(c.label) == key), None)
+        return next((c for c in self.curves if key and (squash(c.label) == key
+                     or any(squash(lab) == key for lab, _ in c.steps))), None)
 
     def edge(self, ref: str, what: str):
         """A curve's label -> that Curve; a number -> a level y = number."""
@@ -136,16 +149,61 @@ def _items(raw: str) -> list[str]:
     return [p.strip() for p in str(raw or "").split(";") if p.strip()]
 
 
+def stages(label: str, expr: str) -> list[tuple[str, str]]:
+    """``"P_0 | P_2", "1 | 1 - x^2/2"`` -> [("P_0", "1"), ("P_2", "1 - x^2/2")]; one label for
+    all stages is fine (``"P: 1 | 1 + x"``)."""
+    exprs = [e.strip() for e in expr.split("|")]
+    labels = [l.strip() for l in label.split("|")]
+    if len(labels) == 1:
+        labels = labels * len(exprs)
+    if len(labels) != len(exprs) or not all(exprs):
+        raise BeatError(f'"{label}: {expr}": give one expression per step between "|" (and one label, '
+                        "or one per step)")
+    return list(zip(labels, exprs))
+
+
 def curves_of(raw: str) -> list[Curve]:
     out = []
     for part in _items(raw):
         label, sep, expr = part.rpartition(":")
-        expr = expr.strip()
         try:
-            out.append(Curve(label.strip(), expr, fn_of(expr)))
+            steps = stages(label, expr)
+            for _, e in steps:
+                fn_of(e)
+            c = Curve(steps[0][0], steps[0][1], fn_of(steps[0][1]))
+            c.steps = steps if len(steps) > 1 else []
+            out.append(c)
         except BeatError as e:
             raise BeatError(f'fn "{part}": {e} (write fn="label: expression; label: expression")') from e
     return out
+
+
+def _slide(raw: str) -> tuple[float, float] | None:
+    raw = str(raw or "").strip()
+    if not raw:
+        return None
+    a, arrow, b = raw.replace("→", "->").partition("->")
+    a = a.strip().removeprefix("x=").removeprefix("x =").strip()
+    if not arrow:
+        raise BeatError(f'slide="{raw}": use "from -> to", e.g. slide="0 -> 2" (points at x=0 ride to x=2)')
+    return number(a), number(b)
+
+
+def live_value(v: float) -> str:
+    """A readout's number: about four significant figures, never in e-notation."""
+    if not np.isfinite(v):
+        return "∞"
+    if abs(v) < 1e-12:
+        return "0"
+    mag = int(np.floor(np.log10(abs(v))))
+    d = int(min(9, max(0, (4 if mag >= -3 else 2) - 1 - mag)))   # 4 figures, 2 when tiny
+    out = f"{v:.{d}f}"
+    return _minus(out.rstrip("0").rstrip(".") if "." in out else out)
+
+
+def fill(text: str, **vals) -> str:
+    """``"error {gap}"`` with gap=0.0026 -> ``"error 0.0026"``; unknown names stay as written."""
+    return re.sub(r"\{(\w+)\}", lambda m: live_value(vals[m.group(1)]) if m.group(1) in vals else m.group(0), text)
 
 
 def parse(attrs: dict) -> Spec:
@@ -155,6 +213,8 @@ def parse(attrs: dict) -> Spec:
     x = pair(attrs.get("x", ""), "x")
     y = pair(attrs["y"], "y") if attrs.get("y", "").strip() else auto_y(curves, x)
     spec = Spec(x, y, has_pi(attrs.get("x")), has_pi(attrs.get("y")), curves)
+    spec.slide = _slide(attrs.get("slide"))
+    spec.drop = str(attrs.get("drop", "")).strip().lower() in ("true", "1", "yes")
     for part in _items(attrs.get("points", "")):
         name, _, at = part.rpartition(":")
         xs, sep, ys = at.partition(",")
@@ -205,7 +265,7 @@ def _on_curve(spec: Spec, x: float, y: float):
 
 def auto_y(curves: list[Curve], x: tuple[float, float]) -> tuple[float, float]:
     xs = np.linspace(*x, 400)
-    ys = np.concatenate([c.f(xs) for c in curves])
+    ys = np.concatenate([fn_of(e)(xs) for c in curves for _, e in (c.steps or [(c.label, c.expr)])])
     ys = ys[np.isfinite(ys)]
     if not len(ys):
         raise BeatError("no curve has a value in the x range; check fn= and x=")
@@ -227,10 +287,13 @@ def _minus(s: str) -> str:
 
 
 def ticks(lo: float, hi: float, length: float, pi: bool) -> list[tuple[float, str]]:
-    """Tick values and their labels: one about every 1.1 units of axis, at 1/2/5 steps, or at
-    pi/4, pi/2, pi, 2pi ... when the range was given in pi."""
+    """Tick values and their labels: one about every 1.6 units of axis (3b1b numbers few ticks:
+    whole numbers, not a ruler), at 1/2/5 steps, or at pi/4, pi/2, pi, 2pi ... when the range
+    was given in pi."""
     span = hi - lo
-    most = max(3.0, min(10.0, length / 1.1))
+    most = max(3.0, min(9.0, length / 1.6))
+    if pi:   # π, 2π read as landmarks; at every π/2 the axis turns into a ruler (3b1b numbers π only)
+        most = min(most, 6.0)
     unit = np.pi if pi else 1.0
     if pi:
         steps = [np.pi / 4, np.pi / 2, np.pi, 2 * np.pi, 4 * np.pi, 8 * np.pi]
@@ -238,6 +301,8 @@ def ticks(lo: float, hi: float, length: float, pi: bool) -> list[tuple[float, st
         mag = 10.0 ** np.floor(np.log10(span / most))
         steps = [m * mag for m in (1, 2, 5, 10, 20)]
     step = next((s for s in steps if span / s <= most), steps[-1])
+    if not pi and step < 1 and span >= 3:   # whole numbers when there are enough of them
+        step = 1.0
     k0, k1 = int(np.ceil(lo / step - 1e-9)), int(np.floor(hi / step + 1e-9))
     out = []
     for k in range(k0, k1 + 1):

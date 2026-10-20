@@ -44,7 +44,7 @@ class Beat:
     camera: dict[str, str]
 
     def leaves(self) -> dict[str, Node]:
-        return {n.id: n for root in self.overlay for n in root.walk()
+        return {n.id: n for root in self.overlay for n in root.walk(lambda m: m.tag not in CHILD_TAGS)
                 if n.tag in LEAF_TAGS or is_panel(n)}
 
 
@@ -75,7 +75,7 @@ class _Parser(HTMLParser):
             if self.leaf.tag in NESTED:
                 self.kids.append(child)
             return
-        if tag in PARENT_OF:
+        if tag in PARENT_OF and tag not in DISPLAY_TAGS:   # <arc> in a <draw> is its shape, alone a mark
             raise BeatError(f"line {self.getpos()[0]}: <{tag}> belongs inside a <{PARENT_OF[tag]}>")
         if self.leaf is not None:
             if tag == "em":
@@ -97,10 +97,11 @@ class _Parser(HTMLParser):
 
     def handle_startendtag(self, tag, attrs):
         tag = ALIASES.get(tag, tag)
+        inside = self.leaf is not None and tag in CHILD_TAGS.get(self.leaf.tag, ())
         self.handle_starttag(tag, attrs)
-        if self.leaf is not None and self.kids and tag in CHILD_TAGS.get(self.leaf.tag, ()):
+        if inside and self.kids:
             self.kids.pop()   # <li … /> closes itself
-        elif tag in LEAF_TAGS:
+        elif tag in LEAF_TAGS and not inside:   # <arc/> in a <draw> is its shape, not a mark
             self.leaf = None
 
     def handle_endtag(self, tag):

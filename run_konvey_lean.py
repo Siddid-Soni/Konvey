@@ -32,7 +32,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--prompt", required=True, help="USER_PROMPT")
     p.add_argument("--duration", type=float, default=90.0, help="Target video duration in seconds")
     p.add_argument("--out-dir", default="out/lean-run")
-    p.add_argument("--provider", default=None, choices=["opencode", "opencode-go", "minimax"])
+    p.add_argument("--provider", default=None, choices=["opencode", "opencode-go", "minimax", "inception"])
     p.add_argument("--model-id", default=None, help="Model id for the active provider")
     p.add_argument("--theme", default="editorial", help="Visual theme (editorial, classic)")
     p.add_argument("--repair-rounds", type=int, default=2)

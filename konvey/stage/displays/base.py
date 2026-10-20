@@ -3,6 +3,8 @@ number formatting, and the default part-by-part morph."""
 
 from __future__ import annotations
 
+import re
+
 import json
 
 from manimlib import *  # noqa: F401,F403
@@ -70,14 +72,40 @@ def _num(v) -> float:
         raise BeatError(f"{v!r} is not a number") from e
 
 
+_SUP = str.maketrans("-0123456789", "⁻⁰¹²³⁴⁵⁶⁷⁸⁹")
+_E = re.compile(r"(-?\d+(?:\.\d+)?)[eE]([+-]?\d+)")
+
+
+def times_ten(text: str) -> str:
+    """``9.66e-08`` -> ``9.66×10⁻⁸``: a program's e-notation, written the way a person would."""
+    return _E.sub(lambda m: f"{m.group(1)}×10{str(int(m.group(2))).translate(_SUP)}", text)
+
+
+def tidy_number(text: str) -> str:
+    """A cell's value as a person writes it: ``0.0013888889`` -> ``0.001389`` (four significant
+    figures), ``2.16e-05`` -> ``2.16×10⁻⁵``; words, fractions and short numbers stay as given."""
+    t = str(text).strip()
+    try:
+        v = float(t)
+    except ValueError:
+        return times_ten(t)
+    digits = len(re.sub(r"[^0-9]", "", t.split("e")[0].split("E")[0]).lstrip("0"))
+    if "e" not in t.lower() and (digits <= 5 or v.is_integer()):   # counts stay exact
+        return t
+    if v != 0 and abs(v) < 1e-4:
+        return times_ten(f"{v:.3g}")
+    out = f"{v:.4g}"
+    return times_ten(out) if "e" in out else out
+
+
 def _fmt(v: float, fmt: str | None) -> str:
-    """Default: 1,048,576 / 12,742 / 0.53 / 2.5 — never scientific notation on screen."""
+    """Default: 1,048,576 / 12,742 / 0.53 / 2.5 / 9.66×10⁻⁸ — never e-notation on screen."""
     if fmt is None:
         if abs(v) >= 1000 or float(v).is_integer():
             return f"{v:,.0f}"
-        return f"{v:.3g}" if abs(v) >= 0.001 else f"{v:.2e}"
+        return f"{v:.3g}" if abs(v) >= 0.001 else times_ten(f"{v:.2e}")
     try:
-        return fmt.format(v)
+        return times_ten(fmt.format(v))
     except (ValueError, IndexError) as e:
         raise BeatError(f'fmt="{fmt}" is not a format like "{{:.3g}}"') from e
 
