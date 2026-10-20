@@ -63,5 +63,5 @@ def _check_drawn(where: str, obj, leaves) -> list[str]:
     return problems
 
 
-DISPLAY = Display(tag="array", order=60, min_size=24, kind="array", needs=("values",),
+DISPLAY = Display(tag="array", grow=True, order=60, min_size=24, kind="array", needs=("values",),
                   check_object=_check_object, check_drawn=_check_drawn)

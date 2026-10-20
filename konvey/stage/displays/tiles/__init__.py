@@ -4,4 +4,4 @@ from __future__ import annotations
 
 from .. import Display
 
-DISPLAY = Display(tag="tiles", order=100, kind="tiles", needs=("word",))
+DISPLAY = Display(tag="tiles", grow=True, order=100, kind="tiles", needs=("word",))

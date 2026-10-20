@@ -34,6 +34,27 @@ WORDS_PER_SEC = 2.7   # narration pace used to size beats that give no hold=
 BAR_OPEN = 0.55      # letterbox bar height once open (units)
 
 
+def _reshaped(n, mob, box, world):
+    """An axes picture whose box the layout gave other proportions (spare room above or beside
+    it) is rebuilt at those proportions instead of being scaled to fit inside them."""
+    w, h = mob.get_width(), mob.get_height()
+    if min(w, h) < 1e-6 or abs((box.w / box.h) / (w / h) - 1) < 0.03:
+        return mob
+    try:   # its drawing size; without w/h, what it was built at (labels included: close enough)
+        aw, ah = float(n.attrs.get("w") or w), float(n.attrs.get("h") or h)
+    except ValueError:
+        return mob
+    k = (box.w / w) / (box.h / h)    # how much wider, relative to taller, the box is
+    attrs = dict(n.attrs)
+    n.attrs["w"], n.attrs["h"] = f"{aw * max(k, 1.0):.4g}", f"{ah * max(1 / k, 1.0):.4g}"
+    try:
+        return build_leaf(n, world)
+    except Exception:   # noqa: BLE001 - the picture at its own proportions is still right
+        n.attrs.clear()
+        n.attrs.update(attrs)
+        return mob
+
+
 def _settle_points(beats: list[Beat]) -> None:
     """Replay a scene's point positions (``at`` and descents) and write where each
     point ends up into the last beat, which is shown on its own as the next scene's
@@ -226,6 +247,8 @@ class StageScene(Scene):
                 if n.tag not in LEAF_TAGS:
                     mobs[i] = build_card(n, bx[i])
                 elif not attached(n):
+                    if n.tag in layout.STRETCH:
+                        mobs[i] = _reshaped(n, mobs[i], bx[i], self.world)
                     fit(mobs[i], bx[i], grow=layout.growable(n))
             place(nodes, mobs)   # against the parts they name, now that those are placed
             view.apply_focus(b.attrs, nodes, mobs, b.index)

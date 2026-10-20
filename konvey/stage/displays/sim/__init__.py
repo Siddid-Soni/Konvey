@@ -97,5 +97,39 @@ def _prepare_rules(beats) -> None:
             last.pop(gone)
 
 
+def _view_tag(sim_id: str, view: str) -> str:
+    """A planned view (``"phase"``, ``"graph: spread, far"``) as its <simview>."""
+    show, _, ys = str(view).partition(":")
+    show = show.strip() or "phase"
+    y = f' y="{ys.strip()}"' if show == "graph" and ys.strip() else ""
+    return f'<simview id="{sim_id}_{show}" sim="{sim_id}" show="{show}"{y}></simview>'
+
+
+def _apply_plan(body: str, obj) -> str:
+    """The plan's run is on screen with the views it asks for: a <sim> the director left out is
+    written from the planned settings (``until`` is its ``t``), and each planned view missing
+    from the beat is added right after it, so the run and its phase plane or graph move in step."""
+    import html
+    import re
+
+    data = obj.data if isinstance(obj.data, dict) else {}
+    sid = obj.id
+    sim = re.search(rf'<sim\b[^>]*\bid="{re.escape(sid)}"[^>]*>.*?</sim>', body, re.S)
+    if sim is None:
+        attrs = {k: v for k, v in data.items() if k not in ("views", "until") and not isinstance(v, (dict, list))}
+        if "until" in data:
+            attrs["t"] = data["until"]
+        text = "".join(f' {k}="{html.escape(str(v))}"' for k, v in attrs.items())
+        body = body.rstrip() + f'\n  <sim id="{sid}"{text}></sim>\n'
+        sim = re.search(rf'<sim\b[^>]*\bid="{re.escape(sid)}"[^>]*>.*?</sim>', body, re.S)
+    add = [_view_tag(sid, v) for v in data.get("views") or []
+           if not re.search(rf'<simview\b[^>]*\bsim="#?{re.escape(sid)}"[^>]*\bshow="{str(v).partition(":")[0].strip() or "phase"}"', body)
+           and not (str(v).partition(":")[0].strip() in ("", "phase")
+                    and re.search(rf'<simview\b(?![^>]*\bshow=)[^>]*\bsim="#?{re.escape(sid)}"', body))]
+    if not add:
+        return body
+    return body[:sim.end()] + "".join("\n  " + t for t in add) + body[sim.end():]
+
+
 DISPLAY = Display(tag="sim", order=150, shrink=0.6, grow=True, steady=True, prepare=_prepare,
-                  kind="simulation", needs=("rule",))
+                  kind="simulation", needs=("rule",), apply_plan=_apply_plan)

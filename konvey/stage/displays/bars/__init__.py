@@ -12,5 +12,5 @@ def _check_object(d: dict) -> list[str]:
     return []
 
 
-DISPLAY = Display(tag="bars", order=40, min_size=24, kind="bars", needs=("labels", "values"),
+DISPLAY = Display(tag="bars", grow=True, order=40, min_size=24, kind="bars", needs=("labels", "values"),
                   check_object=_check_object, check_drawn=drawn_values)

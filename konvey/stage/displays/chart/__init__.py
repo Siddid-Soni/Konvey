@@ -37,5 +37,5 @@ def _check_drawn(where: str, obj, leaves) -> list[str]:
     return []
 
 
-DISPLAY = Display(tag="chart", order=50, enter="create", kind="chart", needs=("series",),
+DISPLAY = Display(tag="chart", grow=True, order=50, enter="create", kind="chart", needs=("series",),
                   check_object=_check_object, check_drawn=_check_drawn)

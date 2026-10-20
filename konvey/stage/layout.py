@@ -26,6 +26,7 @@ body { width: %(w)dpx; }
 .stage { position: absolute; left: 0; width: %(w)dpx; height: %(h)dpx;
          display: flex; flex-direction: column; overflow: hidden; }
 .row { display: flex; flex-direction: row; }
+.wrap { flex-wrap: wrap; align-content: center; }
 .col { display: flex; flex-direction: column; }
 .center { display: flex; align-items: center; justify-content: center; }
 .grow { flex: 1 1 0; min-width: 0; min-height: 0; }
@@ -112,7 +113,7 @@ _READ_JS = """
         problems.push(`${name(el)} is under the letterbox bars (top/bottom ${safe}px are covered); keep beat padding >= 0.75u`);
     }
     // a growable leaf alone in its container: the room it could take
-    const room = {};
+    const room = {}, roomwh = {};
     for (const el of stage.querySelectorAll('.growable')) {
       // a formula row (pictures with operators between) grows as one: the row's room over
       // what its children take together
@@ -129,8 +130,9 @@ _READ_JS = """
       if (!el.id || par === stage || par.children.length !== 1) continue;
       const r = el.getBoundingClientRect(), p = par.getBoundingClientRect();
       room[el.id] = Math.min(p.width / Math.max(r.width, 1), p.height / Math.max(r.height, 1));
+      roomwh[el.id] = [p.width / Math.max(r.width, 1), p.height / Math.max(r.height, 1)];
     }
-    out.push({boxes, problems: [...new Set(problems)], over, room});
+    out.push({boxes, problems: [...new Set(problems)], over, room, roomwh});
   }
   return out;
 }
@@ -142,19 +144,25 @@ SHRINK_FLOOR = {d.tag: d.shrink for d in displays.all_displays() if d.shrink}
 SHRINK_PASSES = 5
 
 
-def _shrink(beats: list[Beat], sizes, raw, natural) -> bool:
+LOOSEN = 0.4   # rendering a beat that still overflows: its floors drop to this × theirs (smaller, never overlapping)
+
+
+def _shrink(beats: list[Beat], sizes, raw, natural, loosen: float = 1.0) -> bool:
     """Make room by scaling overflowing visual blocks (or their visual siblings) down,
     never below SHRINK_FLOOR of their natural size. When those are all at their floor, the
     beat's largest block that can still shrink gives up the room instead (a picture carried
     over from the last scene, too tall for a table under it); a steady block shrinks by the
-    same factor in every beat, so it keeps one size. Returns True if anything changed."""
+    same factor in every beat, so it keeps one size. With ``loosen`` < 1 (a render, after the
+    normal passes left a beat overflowing) the floors drop by that factor for that beat alone, so
+    its pictures get smaller instead of being drawn over each other. Returns True if anything
+    changed."""
     changed = False
     for b, r in zip(beats, raw):
         tags = {i: n.tag for i, n in b.leaves().items()}
 
         def room(i):   # can still shrink
             return tags.get(i) in SHRINK_FLOOR and i in sizes[b.index] and \
-                sizes[b.index][i][0] > natural[b.index][i][0] * SHRINK_FLOOR[tags[i]] + 1e-4
+                sizes[b.index][i][0] > natural[b.index][i][0] * SHRINK_FLOOR[tags[i]] * loosen + 1e-4
 
         for o in r["over"]:
             cands = [i for i in o["own"] if room(i)] or [i for i in o["near"] if room(i)]
@@ -167,11 +175,11 @@ def _shrink(beats: list[Beat], sizes, raw, natural) -> bool:
                 f = min(1 - o["ox"] / (w * 100) if o["ox"] else 1, 1 - o["oy"] / (h * 100) if o["oy"] else 1)
                 f = max(f - 0.01, 0.8)                      # at most 20% per pass; converge over passes
                 w0, h0 = natural[b.index][i]
-                floor = SHRINK_FLOOR[tags[i]]
+                floor = SHRINK_FLOOR[tags[i]] * loosen
                 nw = max(w * f, w0 * floor)
                 if nw < w - 1e-4:
                     k = nw / w
-                    owners = [b] if i in o["own"] + o["near"] or tags[i] not in STEADY_SCALE else \
+                    owners = [b] if loosen < 1 or i in o["own"] + o["near"] or tags[i] not in STEADY_SCALE else \
                         [c for c in beats if i in sizes[c.index]]
                     for c in owners:
                         cw, _ = sizes[c.index][i]
@@ -189,7 +197,10 @@ STEADY_SCALE = tuple(d.tag for d in displays.all_displays() if d.steady)
 
 GROW_MAX = 1.6      # a picture grows at most this much past its natural size
 GROW = {d.tag: (GROW_MAX if d.grow is True else float(d.grow)) for d in displays.all_displays() if d.grow}
-SHOT_GROW = {"full": 2.6, "compare": 2.2}
+# In a shot the picture takes the room its composition leaves (3b1b sizes his main picture to the
+# frame: set_width(FRAME_WIDTH - 1)); the room is the real limit, this only stops a speck of a
+# picture being blown up into a few giant strokes.
+SHOT_GROW = {"full": 4.0, "compare": 4.0, "derive": 4.0, "question": 4.0}
 
 
 def growable(n) -> bool:
@@ -198,39 +209,74 @@ def growable(n) -> bool:
 PICTURES = {d.tag for d in displays.all_displays() if d.picture}   # the picture is the shot: it may take the stage
 
 
+# Axes-based pictures can take any proportions without distorting what they show (3b1b sizes his
+# axes to the room: Axes(width=..., height=...)); after growing, they also take the spare room in
+# the other direction, up to this change of aspect. A plane keeps its proportions (circles stay round).
+STRETCH = {"plot", "chart", "scatter", "bars"}
+STRETCH_MAX = 1.8
+
+
+def _composition(b: Beat) -> tuple:
+    """What shares the screen in a beat: its shot and the ids of its loose leaves."""
+    return (b.attrs.get("shot", ""), tuple(sorted(i for i, n in b.leaves().items() if "of" not in n.attrs)))
+
+
 def _grow(beats: list[Beat], sizes, raw) -> bool:
     """A picture alone in its container takes the spare room (Agent 3 often leaves a plot at a
-    small default), by one factor for the whole scene so it never changes size between beats:
-    the least room any beat gives it. True if anything changed."""
-    # With shots, one factor per element and shot: a picture glides to a new size when the
-    # composition changes (full → derive), which is meant, not a jump.
-    room: dict[tuple[str, str], float] = {}
+    small default), by one factor per composition: the least room any beat with the same shot
+    and the same things on screen gives it, so it holds its size while the beats look alike and
+    glides to a new size when the composition changes (a readout joins, full → derive), which is
+    meant, not a jump. A beat that overflows does not stop the others growing. True if anything
+    changed."""
+    room: dict[tuple, float] = {}
     for b, r in zip(beats, raw):
-        shot = b.attrs.get("shot", "")
+        if r.get("over"):
+            continue
+        comp = _composition(b)
         for i, n in b.leaves().items():
             if growable(n) and i in sizes[b.index]:     # not alone in some beat: it keeps its size
-                top = SHOT_GROW.get(shot, GROW.get(n.tag, GROW_MAX))
-                room[i, shot] = min(room.get((i, shot), top), r.get("room", {}).get(i, 1.0) * 0.97)
+                top = SHOT_GROW.get(comp[0], GROW.get(n.tag, GROW_MAX))
+                key = (i, comp) if comp[0] else (i, "")
+                room[key] = min(room.get(key, top), r.get("room", {}).get(i, 1.0) * 0.97)
     # pictures side by side in a shot share one scale (compared things, a matrix × a vector):
     # one growing alone makes it look bigger than it is
     for b in beats:
-        shot = b.attrs.get("shot", "")
-        if not shot:
+        comp = _composition(b)
+        if not comp[0]:
             continue
-        pics = [i for i, n in b.leaves().items() if n.tag in PICTURES and (i, shot) in room
+        pics = [i for i, n in b.leaves().items() if n.tag in PICTURES and (i, comp) in room
                 and "of" not in n.attrs]
         if len(pics) < 2:
             continue
-        least = min(room[i, shot] for i in pics)
+        least = min(room[i, comp] for i in pics)
         for i in pics:
-            if (i, shot) in room:
-                room[i, shot] = least
+            room[i, comp] = least
+    # an axes picture alone in its row also takes the room left in the other direction
+    extra: dict[tuple, tuple[float, float]] = {}
+    for b, r in zip(beats, raw):
+        comp = _composition(b)
+        if r.get("over") or not comp[0]:
+            continue
+        pics = [i for i, n in b.leaves().items() if n.tag in PICTURES and "of" not in n.attrs]
+        for i, n in b.leaves().items():
+            if n.tag in STRETCH and pics == [i] and i in r.get("roomwh", {}) and (i, comp) in room:
+                f = room[i, comp]
+                rw, rh = (x * 0.97 for x in r["roomwh"][i])
+                ew, eh = min(rw, f * STRETCH_MAX) / f, min(rh, f * STRETCH_MAX) / f
+                old = extra.get((i, comp), (ew, eh))
+                extra[i, comp] = (max(1.0, min(old[0], ew)), max(1.0, min(old[1], eh)))
     changed = False
-    for b in beats:
-        for (i, shot), f in room.items():
-            if shot == b.attrs.get("shot", "") and f > 1.02 and i in sizes[b.index]:
+    for b, r in zip(beats, raw):
+        if r.get("over"):
+            continue
+        comp = _composition(b)
+        for i in list(sizes[b.index]):
+            key = (i, comp) if comp[0] else (i, "")
+            f = room.get(key) or 1.0
+            ew, eh = extra.get(key, (1.0, 1.0))
+            if f > 1.02 or ew > 1.02 or eh > 1.02:
                 w, h = sizes[b.index][i]
-                sizes[b.index][i] = (w * f, h * f)
+                sizes[b.index][i] = (w * f * ew, h * f * eh)
                 changed = True
     return changed
 
@@ -345,11 +391,19 @@ def solve(beats: list[Beat], sizes, *, dump: str | None = None,
             last = k == SHRINK_PASSES - 1
             if last or not any(r["over"] for r in raw) or not _shrink(beats, sizes, raw, natural):
                 break
+        if not strict and any(r["over"] for r in raw):
+            for _ in range(2 * SHRINK_PASSES):   # a render: what still overflows gets smaller, never drawn over
+                if not _shrink(beats, sizes, raw, natural, loosen=LOOSEN):
+                    break
+                page.set_content(page_html(beats, sizes))
+                raw = page.evaluate(_READ_JS, [len(beats), safe])
+                if not any(r["over"] for r in raw):
+                    break
         if _steady(beats, sizes, natural):
             page_src = page_html(beats, sizes)
             page.set_content(page_src)
             raw = page.evaluate(_READ_JS, [len(beats), safe])
-        if not any(r["over"] for r in raw) and _grow(beats, sizes, raw):
+        if _grow(beats, sizes, raw):
             page_src = page_html(beats, sizes)
             page.set_content(page_src)
             raw = page.evaluate(_READ_JS, [len(beats), safe])

@@ -139,5 +139,5 @@ def _adopt(prev, first) -> None:
                     match.attrs["id"] = c.id
 
 
-DISPLAY = Display(tag="draw", order=120, children=SHAPES, steady=True, kind="drawing", needs=("shows",),
+DISPLAY = Display(tag="draw", grow=True, order=120, children=SHAPES, steady=True, kind="drawing", needs=("shows",),
                   prepare=carry_draw_frame, adopt=_adopt, check_object=_check_object, check_drawn=_check_drawn)

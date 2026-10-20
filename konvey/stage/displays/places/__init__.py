@@ -473,7 +473,7 @@ def _adopt(prev, first) -> None:
         olds[0].attrs["id"] = news[0].id
 
 
-DISPLAY = Display(tag="places", order=110, aliases=("system",), children=frozenset({"item"}), steady=True,
+DISPLAY = Display(tag="places", grow=True, order=110, aliases=("system",), children=frozenset({"item"}), steady=True,
                   prepare=carry_system_look, adopt=_adopt, kind="places", needs=("parts",),
                   check_object=_check_object, check_plan=_check_plan, check_scene=_check_scene,
                   apply_plan=_apply_plan)

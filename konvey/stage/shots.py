@@ -95,12 +95,18 @@ def compose(attrs: dict, overlay: list[Node], has_world: bool, leaf_tags, index:
                 if n.tag not in WORDS:
                     n.attrs["_grow"] = "1"
                     n.attrs["_formula"] = "1"   # a term of a written-out formula (names go under it)
+    elif n_pictures > 2:   # three or more: two to a line (one long row squeezes each to a sliver)
+        for w in pictures:
+            if "grow" in w.attrs["class"]:
+                w.attrs["style"] += "; flex: 1 1 40%"
     elif n_pictures > 1:   # side by side: each as wide as its picture needs, not an equal share
         for w in pictures:
             if "grow" in w.attrs["class"]:
                 w.attrs["style"] += "; flex: 1 1 auto"
     row_cls = "grow row center formula" if formula else "grow row center"
     row_gap = "0.45u" if formula else None
+    if n_pictures > 2 and not formula:
+        row_cls += " wrap"
     if has_world:   # the 3D world gets the picture's place (the camera frames it there)
         pictures.insert(0, _div("grow", ident="view"))
     pw, ph = page_size(attrs)
@@ -130,8 +136,9 @@ def compose(attrs: dict, overlay: list[Node], has_world: bool, leaf_tags, index:
         body = [line([q]), _div(row_cls, f"gap: {row_gap or '1u'}", pictures)] + ([line(rest)] if rest else [])
     elif shot == "derive":
         body = [_div("grow row center", "gap: 0.9u", [
-            _div(row_cls, f"gap: {row_gap or '0.6u'}; flex: 3 1 0; align-self: stretch", pictures),
-            _div("col center", "gap: 0.45u; flex: 2 1 0; align-self: stretch", words),
+            _div(row_cls, f"gap: {row_gap or '0.6u'}; flex: 1 1 0; align-self: stretch", pictures),
+            # the words take the width they need (at most 40%): the picture gets the rest
+            _div("col center", "gap: 0.45u; flex: 0 1 auto; max-width: 40%; align-self: stretch", words),
         ])]
     else:   # compare
         if n_pictures + has_world < 2:

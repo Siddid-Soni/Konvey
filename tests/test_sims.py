@@ -85,3 +85,18 @@ def test_pendulum_spirals_into_rest_and_views_share_the_clock():
     assert got == [("0.0", "0.0"), ("0.0", "5.0"), ("5.0", "9.0")]
     with pytest.raises(BeatError, match="name a model"):
         prepare_beats(parse_beats('<beats><beat><simview id="v" sim="nope"></simview></beat></beats>'), strict=False)
+
+
+def test_planned_views_and_a_dropped_run_are_written_from_the_plan():
+    from types import SimpleNamespace
+
+    from konvey.stage.displays.sim import _apply_plan
+
+    swing = SimpleNamespace(id="swing", data={"rule": "pendulum", "until": 4, "views": ["phase"]})
+    body = _apply_plan('<sim id="swing" rule="pendulum" t="4"></sim><tex id="f">x</tex>', swing)
+    assert body.index('<simview id="swing_phase" sim="swing" show="phase">') < body.index("<tex")
+    assert _apply_plan(body, swing) == body   # a view already there is not added twice
+    words_only = _apply_plan('<text id="name">phase plane</text>', swing)
+    assert '<sim id="swing" rule="pendulum" t="4"></sim>' in words_only and 'show="phase"' in words_only
+    crowd = SimpleNamespace(id="crowd", data={"rule": "walk", "until": 3, "views": ["graph: spread, far"]})
+    assert 'show="graph" y="spread, far"' in _apply_plan('<sim id="crowd" rule="walk" t="3"></sim>', crowd)
