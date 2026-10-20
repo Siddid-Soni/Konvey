@@ -191,6 +191,11 @@ def script_key(script):
 
 ID = re.compile(r"^[a-z][a-z0-9_]*$")
 SHOTS = {"full", "question", "derive", "compare", "title"}
+WORD_KINDS = {"text", "tex", "number"}   # set as words by a shot; every other kind is a picture
+
+
+def pictures(objects: list) -> list:
+    return [o for o in objects if o.get("kind") not in WORD_KINDS]
 SKIP_KEYS = {"until", "seed", "zoom", "at", "r", "size", "w", "h", "x", "y", "z", "index", "pointers",
              "highlight", "highlight_cols", "built_from", "period", "views"}
 
@@ -290,6 +295,9 @@ def planner_problems(out: SectionOut, script: Script, exp: Exploration, moves):
                     probs.append(f"{where}: camera target {ref!r} is not an object of this beat ({', '.join(sorted(ids))})")
             if b.camera.shot and b.camera.shot not in SHOTS:
                 probs.append(f"{where}: shot {b.camera.shot!r} is not one of {', '.join(sorted(SHOTS))}")
+            elif b.camera.shot == "compare" and len(pictures(b.objects)) < 2:
+                probs.append(f"{where}: shot 'compare' sets two pictures side by side, and this beat has "
+                             f"{len(pictures(b.objects))}; give it two pictures or drop the shot")
     for i in moves:  # a run that reaches its end on the first of several lines is over before they watch it
         runs = {}
         for b in (b for b in out.beats if b.move == i):
@@ -320,9 +328,48 @@ def planner_problems(out: SectionOut, script: Script, exp: Exploration, moves):
         if script.moves[i].discovery and not any(b.move == i and b.camera and (b.camera.view or b.camera.focus) for b in out.beats):
             probs.append(f"move {i} is the discovery ({script.moves[i].discovery}): at the line where the viewer should "
                          "notice, give a camera view or focus on the exact part the notice is about")
+    warns += picture_warnings(out.beats)
+    probs += state_problems(out.beats)
     if out.beats and camera_beats > 0.5 * len(out.beats):
         warns.append(f"the camera moves on {camera_beats} of {len(out.beats)} beats; about a third reads calmer")
     return probs, warns
+
+
+STATE_KINDS = {"plane", "plot"}   # where a run's state gets redrawn by hand instead of shown as its view
+
+
+def picture_warnings(beats) -> list[str]:
+    """Soft rules (from a few runs, not measured on 3b1b yet): the main picture stays on screen,
+    and a simulated run's state is its view, not a hand-drawn plane beside or instead of it."""
+    warns = []
+    seen = [{o.get("id") for o in pictures(b.objects)} for b in beats]
+    counts = {}
+    for ids in seen:
+        for i in ids:
+            counts[i] = counts.get(i, 0) + 1
+    if counts and len(beats) >= 6:
+        main = max(counts, key=counts.get)
+        if counts[main] < 0.6 * len(beats):
+            switches = sum(1 for a, b in zip(seen, seen[1:]) if a and b and not a & b)
+            warns.append(f"the main picture {main!r} is on {counts[main]} of {len(beats)} beats and the picture "
+                         f"is swapped {switches} times; add new pictures beside it instead of replacing it")
+    return warns
+
+
+def state_problems(beats) -> list[str]:
+    """A plane or plot drawn while the section's simulation is off screen: a run's state (its
+    speeds, its phase) is the run's own view, moving in step beside it (3b1b's blocks and their
+    velocity circle), not a still picture instead of it."""
+    sims = set()
+    for b in beats:
+        kinds = {o.get("kind") for o in b.objects}
+        sims |= {o.get("id") for o in b.objects if o.get("kind") == "simulation"}
+        if sims and kinds & STATE_KINDS and "simulation" not in kinds:
+            return [f"move {b.move} line {b.line}: a {'/'.join(sorted(kinds & STATE_KINDS))} with the simulation "
+                    f"({', '.join(sorted(sims))}) off screen. If it shows the run's state (its speeds, energy, phase, "
+                    "a count over time), make it the simulation's `views` and keep the run on screen; otherwise keep "
+                    "the run beside it"]
+    return []
 
 
 def plan_section(script, exp, sid, moves, before):

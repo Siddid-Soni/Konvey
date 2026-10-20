@@ -37,6 +37,10 @@ get:
   at the line that says it. Show the actual thing the line names, and change it in place: same
   `id` from beat to beat for the same thing (it then stays and changes instead of being redrawn).
   **One main picture per section**, kept from its first beat to its last.
+- **New pictures join the main one, they do not replace it.** A second picture goes beside the
+  main picture (two at most), so the viewer sees how the new thing relates to the one they know;
+  the main picture leaves only when the move's `picture` state is a different thing altogether.
+  A section that swaps its picture every few lines reads as flashcards.
 - A line may **hold** (`"hold": true`, same objects and data as the beat before) only when it
   finishes the previous line's thought or comments on what is on screen, and every number it says
   is already shown. Most lines change something: mark part of it, add the number it says, move a
@@ -57,7 +61,12 @@ setting as its own key in `data`, `seed` included). `until` is model time by the
 raise it line by line across the move so each line watches its stretch, reaching the finding's
 `t` at the line that states the claim (for `"end"`, write `"until": "end"`). Same `id` every beat.
 Never write the outcome into the data: the engine computes it and shows its live values. A second
-view of the same run (a graph of it, a phase plane) goes in `views`. The simulation *is* the picture
+view of the same run (a graph of it, a phase plane) goes in `views`. **When lines reason about the
+run's state** (the speeds of its parts, its energy, where it is in a cycle, a count over time),
+that state is a view of the run: add it to the simulation's `views` (`["phase"]`, `["graph: …"]`)
+so it moves in step beside the run, and keep the run on screen. Never draw that state as a separate
+`plane`, `plot` or `drawing` next to the run or instead of it: a swinging weight's angle and speed
+are its phase view, not a new plane with a point drawn on it. The simulation *is* the picture
 of what it simulates: never draw the same blocks, balls or crowd again as a `drawing`, and never
 add a `number` for a value it already shows live (its counter, its counts). A different run (other
 settings) is a new simulation with its own id. A trace of a simulated run is shown by the
@@ -80,7 +89,7 @@ only where the story needs the viewer's eye moved, by name only (never coordinat
 | a line about one part of a bigger picture | `{"focus": ["<id>><part>"]}` |
 | the first beat of a chapter section | `{"view": "<the chapter's main object id>"}`: the camera travels to the new setting |
 | `closes_opening` | `{"view": "<the opening's main object id>"}` from `BEFORE`: back to where it started |
-| a montage, or two things weighed against each other | `{"shot": "compare"}` (two pictures side by side), or `{"view": "page"}` to pull out |
+| a montage, or two things weighed against each other | `{"shot": "compare"}` (two pictures side by side: the beat needs two objects that are not text, tex or number), or `{"view": "page"}` to pull out |
 | a formula built from parts on screen | `{"shot": "derive"}` |
 | after a close look, back to the whole picture | `{"view": "<id>"}` |
 
