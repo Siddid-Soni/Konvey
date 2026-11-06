@@ -19,6 +19,9 @@ SCENE PLAN (JSON: 3 scenes S1->S2->S3, beats with vo_line, teaches, walkthrough_
 beat HTML per scene ──► konvey.stage (Chromium layout → manimgl) ──► video.mp4
 ```
 
+Working on the code (or an agent doing so)? Start with [AGENTS.md](AGENTS.md): setup, commands, and
+what lives where.
+
 ## Use from a coding harness (MCP)
 
 Konvey also runs as an MCP server plus an Agent Skill for Claude Code, opencode and Cursor.
