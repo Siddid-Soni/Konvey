@@ -19,6 +19,20 @@ SCENE PLAN (JSON: 3 scenes S1->S2->S3, beats with vo_line, teaches, walkthrough_
 beat HTML per scene ──► konvey.stage (Chromium layout → manimgl) ──► video.mp4
 ```
 
+## Use from a coding harness (MCP)
+
+Konvey also runs as an MCP server plus an Agent Skill for Claude Code, opencode and Cursor.
+The harness model researches the topic, writes the script and beats; Konvey supplies the
+reference, checks, preview stills and render. v1 is silent.
+
+```bash
+uv sync --group mcp --group render --group layout
+uv run --group mcp --group render --group layout konvey-mcp --help
+```
+
+See [docs/konvey-mcp.md](docs/konvey-mcp.md) for the server config, the skill install, and the
+tool reference.
+
 ## 1. Agents
 
 | # | Agent | In → Out | Decides | Must not do |

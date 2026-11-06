@@ -13,9 +13,21 @@ dependencies = [
     "python-dotenv>=1.2.3",
 ]
 
+[project.optional-dependencies]
+mcp = [
+    "mcp>=1.2",
+]
+
+[project.scripts]
+konvey-mcp = "konvey.mcp.server:main"
+
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+    "mcp>=1.2",
+]
+mcp = [
+    "mcp>=1.2",
 ]
 layout = [
     "playwright>=1.64.0",
