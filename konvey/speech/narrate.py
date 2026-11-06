@@ -14,11 +14,14 @@ import re
 import subprocess
 from pathlib import Path
 
+import os
+
 from ..prompts import REPO_ROOT
 from .dramabox import dialogue, map_dialogue
 
-# Deadlock's Paige, her monologue (DramaBox clones from its first 10 s)
-REF = REPO_ROOT / "assets" / "voices" / "paige" / "raw" / "Bookworm_match_start_punkgoat_bookworm_convo01_04.mp3"
+# The narrator's reference clip (DramaBox clones from its first 10 s). Voice clips are not in the
+# repo (see assets/voices/README.md): set KONVEY_VOICE_REF, or put a clip at the default path.
+REF = Path(os.environ.get("KONVEY_VOICE_REF") or REPO_ROOT / "assets" / "voices" / "narrator.mp3")
 PLAN = REPO_ROOT / "prompts" / "agent2-stage" / "plan-narration.md"
 STAGE_NOTE = REPO_ROOT / "prompts" / "agent3-stage" / "narration.md"   # appended to Agent 3's prompt
 # attribute values may hold ">" (focus="graph>x=2"), so a tag ends at the first ">" outside quotes

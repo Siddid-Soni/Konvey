@@ -421,7 +421,7 @@ Claude Code `.mcp.json` (project or user scope):
     "konvey": {
       "command": "uv",
       "args": [
-        "run", "--project", "/home/siddid/Projects/Konvey",
+        "run", "--project", "/path/to/Konvey",
         "--group", "mcp", "--group", "render", "--group", "layout",
         "konvey-mcp"
       ],
@@ -441,7 +441,7 @@ opencode `opencode.json` (note the long tool timeout, because preview/render are
     "konvey": {
       "type": "local",
       "command": [
-        "uv", "run", "--project", "/home/siddid/Projects/Konvey",
+        "uv", "run", "--project", "/path/to/Konvey",
         "--group", "mcp", "--group", "render", "--group", "layout",
         "konvey-mcp"
       ],

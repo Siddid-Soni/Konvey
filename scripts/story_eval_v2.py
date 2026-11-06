@@ -21,9 +21,9 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-sys.path.insert(0, "/home/siddid/Projects/Konvey")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # opening_eval, story_eval
-os.chdir("/home/siddid/Projects/Konvey")
+os.chdir(Path(__file__).resolve().parents[1])
 load_dotenv()
 PLAN = os.environ.get("PLAN_MODEL", "claude-haiku-5-5")
 EXPLORER_MODEL = os.environ.get("EXPLORER_MODEL", PLAN)

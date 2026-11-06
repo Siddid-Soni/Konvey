@@ -9,7 +9,7 @@ import re
 import sys
 from pathlib import Path
 
-ROOT = Path("/home/siddid/Projects/Konvey/out")
+ROOT = Path(__file__).resolve().parents[1] / "out"
 V1, V2 = ROOT / "story-eval", ROOT / os.environ.get("EVAL", "story-eval-v3")
 V2OLD = ROOT / "story-eval-v2"
 TOPICS = ["clacks", "convolutions", "wordle", "taylor", "chessboard", "clt", "inscribed", "triples", "basel", "fractaldim"]

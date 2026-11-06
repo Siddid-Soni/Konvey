@@ -5,3 +5,14 @@ __pycache__/
 *.pyc
 .pytest_cache/
 manim-reference/.cache/
+.venv-gpu/
+.claude/
+.env.*
+!.env.example
+
+# voice clips are not redistributable: supply your own (assets/voices/README.md)
+assets/voices/*
+!assets/voices/README.md
+
+# local working notes
+docs/superpowers/handoff-*.md

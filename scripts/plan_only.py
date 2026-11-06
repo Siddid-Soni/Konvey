@@ -8,8 +8,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-sys.path.insert(0, "/home/siddid/Projects/Konvey")
-os.chdir("/home/siddid/Projects/Konvey")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+os.chdir(Path(__file__).resolve().parents[1])
 load_dotenv()
 # before any konvey import: konvey.agents reads the model id when it is imported
 os.environ["OPENCODE_MODEL_ID"] = os.environ["KONVEY_MODEL_ID"] = os.environ.get("PLAN_MODEL", "claude-haiku-5-5")
