@@ -728,59 +728,7 @@ STATE = ("spec", "colors", "ticks", "tick_lines", "tick_labels", "lines", "shade
          "curve_labels", "shade_labels", "labels", "box", "axes", "w", "h")
 
 
-def _stage(attrs: dict, step: int, slide: tuple[float, float] | None) -> dict:
-    """The plot's attributes at one stage: every stepped curve at its ``step``-th expression
-    (the last when it has fewer), and with ``slide`` what sat at x=from moved to x=to."""
-    out = {k: v for k, v in attrs.items() if k != "slide"}
-    parts, alias = [], {}
-    for part in S._items(attrs.get("fn", "")):
-        label, _, expr = part.rpartition(":")
-        st = S.stages(label, expr)
-        lab, e = st[min(step, len(st) - 1)]
-        parts.append(f"{lab}: {e}" if lab else e)
-        alias.update({S.squash(l): lab for l, _ in st if l})
-    out["fn"] = "; ".join(parts)
-
-    def name(ref: str) -> str:   # a curve named by any of its step labels: its label at this stage
-        return alias.get(S.squash(ref), ref.strip())
-
-    if alias:
-        pts = []
-        for part in S._items(attrs.get("points", "")):
-            nm, _, xy = part.rpartition(":")
-            xs, _, ys = xy.partition(",")
-            pts.append(f"{nm}: {xs.strip()},{name(ys)}")
-        out["points"] = "; ".join(pts)
-        for key, sep in (("gap", "@"), ("shade", ":")):
-            items = []
-            for part in S._items(attrs.get(key, "")):
-                refs, s_, rest = part.partition(sep)
-                items.append(",".join(name(r) for r in refs.split(",")) + s_ + rest)
-            out[key] = "; ".join(items)
-    attrs = out
-    if slide is not None:
-        a, b = slide
-        at = lambda v: abs(S.number(v) - a) <= 1e-9 * max(1.0, abs(a))  # noqa: E731
-        pts = []
-        for part in S._items(attrs.get("points", "")):
-            nm, _, xy = part.rpartition(":")
-            xs, _, ys = xy.partition(",")
-            pts.append(f"{nm}: {b!r},{ys.strip()}" if at(xs) else part)
-        out["points"] = "; ".join(pts)
-        marks = []
-        for part in S._items(attrs.get("mark", "")):
-            where, sep, label = part.partition(":")
-            axis, _, v = where.partition("=")
-            marks.append(f"x={b!r}{sep}{label}" if axis.strip() == "x" and at(v) else part)
-        out["mark"] = "; ".join(marks)
-        gaps = []
-        for part in S._items(attrs.get("gap", "")):
-            what, sep, label = part.partition(":")
-            refs, _, where = what.partition("@")
-            axis, _, v = where.partition("=")
-            gaps.append(f"{refs}@x={b!r}{sep}{label}" if axis.strip() == "x" and at(v) else part)
-        out["gap"] = "; ".join(gaps)
-    return {k: v for k, v in out.items() if v != ""}
+_stage = S.stage_attrs   # the plot's attributes at one stage (spec.stage_attrs)
 
 
 def _keep_offsets(start: PlotBlock, end: PlotBlock) -> None:

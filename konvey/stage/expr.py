@@ -12,6 +12,8 @@ from .tree import BeatError
 # Plot functions are parsed, never eval'd: numbers, x, + - * / ** and these calls.
 _FUNCS = {k: getattr(np, k) for k in ("sin", "cos", "tan", "exp", "log", "sqrt", "abs", "arctan",
                                       "sinh", "cosh", "tanh", "floor", "ceil", "sign")}
+# inverse trig as models write it (asin, acos, atan) and as numpy names it; outside [-1, 1] -> nan (a gap)
+_FUNCS |= {"arcsin": np.arcsin, "arccos": np.arccos, "asin": np.arcsin, "acos": np.arccos, "atan": np.arctan}
 _CONSTS = {"pi": np.pi, "e": np.e}
 _BINOPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
            ast.Div: operator.truediv, ast.Pow: operator.pow}

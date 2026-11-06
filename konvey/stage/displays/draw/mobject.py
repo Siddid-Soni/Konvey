@@ -8,6 +8,8 @@ import numpy as np
 
 from manimlib import *  # noqa: F401,F403
 
+from ... import icons
+
 from ...tree import BeatError, Node
 from ...theme import current
 from ..base import _num, _label, Block, _own_layer, HOP, _swap
@@ -15,11 +17,12 @@ from ..base import _num, _label, Block, _own_layer, HOP, _swap
 
 DRAW_ATTRS = {
     "rect": {"id", "x", "y", "w", "h", "color", "fill", "label", "round", "z"},
-    "circle": {"id", "x", "y", "r", "color", "fill", "label", "z"},
+    "circle": {"id", "x", "y", "r", "color", "fill", "dashed", "label", "z"},
     "polygon": {"id", "points", "color", "fill", "label", "z"},
     "line": {"id", "from", "to", "points", "color", "width", "arrow", "dashed", "label", "z"},
     "label": {"id", "x", "y", "text", "color", "size", "z"},
-    "arc": {"id", "x", "y", "r", "from", "to", "color", "width", "fill", "label", "z"},
+    "arc": {"id", "x", "y", "r", "from", "to", "color", "width", "fill", "dashed", "label", "z"},
+    "icon": {"id", "x", "y", "h", "name", "color", "label", "z"},
 }
 for _attrs in DRAW_ATTRS.values():
     _attrs.update({"move", "around"})
@@ -145,6 +148,15 @@ class DrawBlock(Block):
                         shape = VMobject().set_points_as_corners(rim)
                     else:   # a filled sector: the angle's whole wedge
                         shape = VMobject().set_points_as_corners([P(cx, cy), *rim, P(cx, cy)])
+                elif c.tag == "icon":   # a line icon (konvey.stage.icons): a chip, a disk, a person
+                    name = c.attrs.get("name", "").strip()
+                    if not icons.exists(name):
+                        near = icons.suggest(name)
+                        raise BeatError(f'{where} name="{name}": no such icon' +
+                                        (f"; close: {', '.join(near)}" if near else ""))
+                    shape = icons.icon(name, num("h") * sy, interpolate_color(th.bg, color, 0.25), color)
+                    shape.move_to(P(num("x"), num("y")))
+                    geo["at"] = (num("x"), num("y"))
                 elif c.tag == "polygon":
                     corners = pts(c.attrs.get("points", ""))
                     if len(corners) < 3:
@@ -180,8 +192,14 @@ class DrawBlock(Block):
                     fill_op = 0.0
                 if c.tag == "arc":
                     shape.set_fill(color, fill_op).set_stroke(color, num("width", 3.0))
-                elif c.tag != "line":
+                elif c.tag not in ("line", "icon"):
                     shape.set_fill(color, fill_op).set_stroke(color, 2.5)
+                if c.tag in ("circle", "arc") and c.attrs.get("dashed", "").lower() in ("true", "1", "yes"):
+                    # an outline only: a dashed ring (a path's circle, a cone's rim), a dashed angle mark
+                    width = num("width", 3.0) if c.tag == "arc" else 2.5
+                    shape = DashedVMobject(shape.set_fill(opacity=0), num_dashes=max(8, int(shape.get_arc_length() / 0.15)))
+                    shape.set_stroke(color, width)
+                    fill_op = 0.0
                 text = c.attrs.get("label", "").strip()
                 lab = VMobject()
                 if text:
@@ -196,6 +214,10 @@ class DrawBlock(Block):
                         rr = num("r") + 0.5 * max(lab.get_width(), lab.get_height()) / sx + 0.1 / sx
                         lab = _label(text, size, color)
                         lab.move_to(P(num("x") + rr * np.cos(t), num("y") + rr * np.sin(t)))
+                        self.labels.append((lab, size, False))
+                    elif c.tag == "icon":   # under the icon
+                        lab = _label(text, size, th.ink)
+                        lab.next_to(shape, DOWN, buff=0.12)
                         self.labels.append((lab, size, False))
                     else:
                         lab.move_to(shape)

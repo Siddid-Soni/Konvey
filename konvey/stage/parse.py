@@ -27,12 +27,17 @@ LEAF_TAGS = TEXT_TAGS | DISPLAY_TAGS
 CONTAINER_TAGS = {"div", "section"}
 WORLD_TAGS = {"ground", "cube", "shadow", "rays", "axes3d", "surface", "point", "gradient", "contours",
               "parametric", "trajectory", "slice", "waves", "orbits", "particles", "flow",
-              "sphere", "solid", "light", "field", "label3d", "line3d", "angle3d", "face3d"}
+              "sphere", "solid", "light", "field", "label3d", "line3d", "angle3d", "face3d",
+              "stack3d", "grid3d"}
+# <diagram> (konvey.stage.diagram3d) is a world actor with a tree inside: containers and leaves
+DIAGRAM_BOXES = {"panel", "repeat", "col", "row", "grid"}
+DIAGRAM_LEAVES = {"box", "cells", "edge"}
 ALIASES = displays.aliases()   # an old tag (<system>) reads as the display's tag now (<places>)
 # Videos carry no subtitles: the narration is heard, and the picture takes the whole stage.
 # caption="auto" on a beat (or CAPTION = "auto") brings back the vo as a subtitle.
 CAPTION = "none"
-KNOWN = LEAF_TAGS | CONTAINER_TAGS | WORLD_TAGS | set(PARENT_OF) | {"beats", "beat", "world", "camera", "em", "br"}
+KNOWN = LEAF_TAGS | CONTAINER_TAGS | WORLD_TAGS | set(PARENT_OF) | {"beats", "beat", "world", "camera", "em", "br",
+                                                                    "diagram"} | DIAGRAM_BOXES | DIAGRAM_LEAVES
 
 
 @dataclass
@@ -86,7 +91,19 @@ class _Parser(HTMLParser):
                 raise BeatError(f"<{tag}> inside leaf <{self.leaf.tag} id={self.leaf.id}>: only <em>/<br> allowed")
             return
         node = Node(tag, {k: (v or "") for k, v in attrs})
+        in_diagram = any(n.tag == "diagram" for n in self.stack)
+        part = tag in DIAGRAM_BOXES | DIAGRAM_LEAVES
+        if in_diagram and not part and tag != "diagram":
+            raise BeatError(f"line {self.getpos()[0]}: <{tag}> is not allowed inside <diagram>; use box, "
+                            "cells, edge, panel, repeat, col, row, grid")
+        if part and not in_diagram and tag not in LEAF_TAGS:   # <grid> outside a diagram is the table
+            raise BeatError(f"line {self.getpos()[0]}: <{tag}> belongs inside a <diagram>")
         self.stack[-1].children.append(node)
+        if tag == "diagram" or (in_diagram and tag in DIAGRAM_BOXES):
+            self.stack.append(node)
+            return
+        if in_diagram and tag in DIAGRAM_LEAVES:
+            return
         if tag in LEAF_TAGS:
             if not node.id:
                 raise BeatError(f"line {self.getpos()[0]}: leaf <{tag}> needs an id")
@@ -116,7 +133,7 @@ class _Parser(HTMLParser):
             elif tag == self.leaf.tag:
                 self.leaf = None
             return
-        if tag in {"camera", "br"} | WORLD_TAGS:
+        if tag in {"camera", "br"} | WORLD_TAGS | DIAGRAM_LEAVES:
             return
         if self.stack[-1].tag != tag:
             raise BeatError(f"line {self.getpos()[0]}: </{tag}> closes <{self.stack[-1].tag}>")

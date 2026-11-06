@@ -140,10 +140,8 @@ def compose(attrs: dict, overlay: list[Node], has_world: bool, leaf_tags, index:
             # the words take the width they need (at most 40%): the picture gets the rest
             _div("col center", "gap: 0.45u; flex: 0 1 auto; max-width: 40%; align-self: stretch", words),
         ])]
-    else:   # compare
-        if n_pictures + has_world < 2:
-            raise BeatError(f'beat {index} shot="compare" needs two pictures side by side')
-
+    else:   # compare: pictures side by side. One picture lays out as shot="full" (the Director often draws the
+        # second picture onto the first, as marks or a curve, which is the better picture): never a dead scene
         body = [_div(row_cls, f"gap: {row_gap or '1.2u'}", pictures)] + ([line(words)] if words else [])
     if (pw, ph) != (1.0, 1.0) or regions:
         # the shot fills the home frame; the regions lie beyond it (right on a wide page, below

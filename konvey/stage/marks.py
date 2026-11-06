@@ -20,8 +20,9 @@ import numpy as np
 from .tree import BeatError, Node
 
 _PAIR = re.compile(r"^\s*-?[\d.]+(e-?\d+)?\s*,\s*-?[\d.]+(e-?\d+)?\s*$", re.I)
+_ONE = re.compile(r"^\s*-?[\d.]+(e-?\d+)?\s*$", re.I)
 _REF = re.compile(r"^\s*([A-Za-z_][\w-]*)(?:\.(\d+)(?:\s*-\s*(\d+))?)?\s*$")
-HOSTS = "a <plane>, a <plot>, a <numberline>, a <draw> (its own x/y) or a <grid> (row,col)"
+HOSTS = "a <plane>, a <plot>, a <numberline>, a <draw> (its own x/y), a <grid> (row,col) or an <array> (cell)"
 
 
 def host(node: Node, resolve, where: str):
@@ -44,6 +45,9 @@ def points(raw: str, resolve, where: str, what: str) -> list[tuple[float, float]
         if _PAIR.match(part):
             x, y = (float(v) for v in part.split(","))
             out.append((x, y))
+            continue
+        if _ONE.match(part):   # one number: a position along a line of cells (an array's cell 3)
+            out.append((float(part), 0.0))
             continue
         m = _REF.match(part)
         if not m:
@@ -229,9 +233,24 @@ def _same(a: str, b: str) -> bool:
     if sq(a) == sq(b):
         return True
     na, nb = re.findall(r"-?\d+\.?\d*(?:e-?\d+)?", a), re.findall(r"-?\d+\.?\d*(?:e-?\d+)?", b)
-    if not na or len(na) != len(nb) or re.sub(r"-?\d+\.?\d*(?:e-?\d+)?", "#", sq(a)) != re.sub(r"-?\d+\.?\d*(?:e-?\d+)?", "#", sq(b)):
-        return False
-    return all(abs(float(x) - float(y)) <= 1e-6 * max(1.0, abs(float(x))) for x, y in zip(na, nb))
+    if na and len(na) == len(nb) and re.sub(r"-?\d+\.?\d*(?:e-?\d+)?", "#", sq(a)) == re.sub(r"-?\d+\.?\d*(?:e-?\d+)?", "#", sq(b)):
+        return all(abs(float(x) - float(y)) <= 1e-6 * max(1.0, abs(float(x))) for x, y in zip(na, nb))
+    return _same_points(a, b)
+
+
+def _same_points(a: str, b: str) -> bool:
+    """The same points with coordinates written as expressions (``pi/3,0.5`` = ``1.0472,0.5``), to
+    the 4 decimals a plan writes them with."""
+    from .displays.plot.spec import number
+
+    def coords(s: str) -> list[float] | None:
+        try:
+            return [number(c) for p in str(s).split(";") if p.strip() for c in p.split(",")]
+        except BeatError:
+            return None
+    ca, cb = coords(a), coords(b)
+    return bool(ca) and ca is not None and cb is not None and len(ca) == len(cb) and \
+        all(abs(x - y) <= 5e-5 * max(1.0, abs(x)) for x, y in zip(ca, cb))
 
 
 def plan_hooks(tag: str, keys: tuple[str, ...], needs_one_of: tuple[tuple[str, ...], ...]):

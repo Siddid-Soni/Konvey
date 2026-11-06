@@ -152,6 +152,7 @@ def _items(raw: str) -> list[str]:
 def stages(label: str, expr: str) -> list[tuple[str, str]]:
     """``"P_0 | P_2", "1 | 1 - x^2/2"`` -> [("P_0", "1"), ("P_2", "1 - x^2/2")]; one label for
     all stages is fine (``"P: 1 | 1 + x"``)."""
+    expr, label = expr.replace("\\|", "|"), label.replace("\\|", "|")   # the docs' table spelling of "|"
     exprs = [e.strip() for e in expr.split("|")]
     labels = [l.strip() for l in label.split("|")]
     if len(labels) == 1:
@@ -249,6 +250,61 @@ def parse(attrs: dict) -> Spec:
         lo, hi = pair(span, "shade") if span.strip() else spec.x
         spec.shades.append((a, b, lo, hi, label.strip()))
     return spec
+
+
+def stage_attrs(attrs: dict, step: int, slide: tuple[float, float] | None) -> dict:
+    """The plot's attributes at one stage: every stepped curve at its ``step``-th expression
+    (the last when it has fewer), and with ``slide`` what sat at x=from moved to x=to."""
+    out = {k: v for k, v in attrs.items() if k != "slide"}
+    parts, alias = [], {}
+    for part in _items(attrs.get("fn", "")):
+        label, _, expr = part.rpartition(":")
+        st = stages(label, expr)
+        lab, e = st[min(step, len(st) - 1)]
+        parts.append(f"{lab}: {e}" if lab else e)
+        alias.update({squash(l): lab for l, _ in st if l})
+    out["fn"] = "; ".join(parts)
+
+    def name(ref: str) -> str:   # a curve named by any of its step labels: its label at this stage
+        return alias.get(squash(ref), ref.strip())
+
+    if alias:
+        pts = []
+        for part in _items(attrs.get("points", "")):
+            nm, _, xy = part.rpartition(":")
+            xs, _, ys = xy.partition(",")
+            pts.append(f"{nm}: {xs.strip()},{name(ys)}")
+        out["points"] = "; ".join(pts)
+        for key, sep in (("gap", "@"), ("shade", ":")):
+            items = []
+            for part in _items(attrs.get(key, "")):
+                refs, s_, rest = part.partition(sep)
+                items.append(",".join(name(r) for r in refs.split(",")) + s_ + rest)
+            out[key] = "; ".join(items)
+    attrs = out
+    if slide is not None:
+        a, b = slide
+        at = lambda v: abs(number(v) - a) <= 1e-9 * max(1.0, abs(a))  # noqa: E731
+        pts = []
+        for part in _items(attrs.get("points", "")):
+            nm, _, xy = part.rpartition(":")
+            xs, _, ys = xy.partition(",")
+            pts.append(f"{nm}: {b!r},{ys.strip()}" if at(xs) else part)
+        out["points"] = "; ".join(pts)
+        marks = []
+        for part in _items(attrs.get("mark", "")):
+            where, sep, label = part.partition(":")
+            axis, _, v = where.partition("=")
+            marks.append(f"x={b!r}{sep}{label}" if axis.strip() == "x" and at(v) else part)
+        out["mark"] = "; ".join(marks)
+        gaps = []
+        for part in _items(attrs.get("gap", "")):
+            what, sep, label = part.partition(":")
+            refs, _, where = what.partition("@")
+            axis, _, v = where.partition("=")
+            gaps.append(f"{refs}@x={b!r}{sep}{label}" if axis.strip() == "x" and at(v) else part)
+        out["gap"] = "; ".join(gaps)
+    return {k: v for k, v in out.items() if v != ""}
 
 
 def _on_curve(spec: Spec, x: float, y: float):

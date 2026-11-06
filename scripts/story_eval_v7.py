@@ -155,14 +155,93 @@ def used_findings(script: Script, moves, exp: Exploration):
     return [f for f in exp.findings if f.id in want]
 
 
+def _head(action: str) -> list[str]:
+    """The words before a step's colon (or its first clause): "insert kim: slots 2, 9" -> [insert, kim]."""
+    head = re.split(r"[:—,(=]", action, maxsplit=1)[0]
+    return [w.lower() for w in re.findall(r"[A-Za-z][\w'-]{2,}", head)]
+
+
+def item_words(t, j: int) -> list[str]:
+    """What goes in at step j: its head words that are not verbs (a word that starts two or more steps,
+    "insert", "query") and are its own (in no other step's head) or a name ("Kim leaves", "query Kim");
+    capitalised first, else the last ("delete kim" -> kim). A single-step trace has no verb to tell apart."""
+    heads = [_head(s.action) for s in t.steps]
+    firsts = [h[0] for h in heads if h]
+    verbs = {w for w in firsts if firsts.count(w) > 1}   # "query" starts two steps: a verb
+    seen = {w: sum(w in h for h in heads) for h in heads for w in h}
+    caps = {w.lower() for w in re.findall(r"\b[A-Z][\w'-]+", t.steps[j].action)}
+    own = [w for w in heads[j] if w not in verbs and (seen[w] == 1 or w in caps or len(heads) == 1)]
+    return sorted(own, key=lambda w: (w not in caps, -own.index(w)))
+
+
+def _names_step(line: str, t, j: int) -> bool:
+    """A spoken line names trace step j: what goes in ("Kim's land on two slots"), or two of its
+    numbers, or all of them (0, 1 and 2 are ordinary words and never count alone)."""
+    if any(re.search(rf"\b{re.escape(w)}(?:'s)?\b", line, re.I) for w in item_words(t, j)):
+        return True
+    want, said = set(v6.numbers_said(t.steps[j].action)), set(v3.numbers_in(line))
+    return len(want & said) >= 2 or (bool(want) and want <= said)
+
+
+def walked_steps(script: Script, t) -> dict[int, list[int]]:
+    """{move index: [trace steps it names, a line each]} for trace ``t``."""
+    out = {}
+    for i, m in enumerate(script.moves):
+        got = []
+        for ln in m.lines:
+            named = [j for j in range(len(t.steps)) if _names_step(ln.line, t, j)]
+            if len(named) <= 2:   # a line naming three steps at once sums them up, it walks none
+                got += named
+        if got:
+            out[i] = list(dict.fromkeys(got))
+    return out
+
+
 def walks(script: Script, exp: Exploration):
-    """{move index: trace id}: the move that uses a trace's findings most walks through it."""
+    """{move index: trace id}: the move that names most of a trace's steps walks through it; with none
+    named, the move that uses the trace's findings most."""
     out = {}
     for t in exp.traces:
+        named = walked_steps(script, t)
+        if named:
+            out.setdefault(max(named, key=lambda i: len(named[i])), t.id)
+            continue
         uses = [sum(len(set(ln.uses) & set(t.findings)) for ln in m.lines) for m in script.moves]
         if uses and max(uses) > 0:
             out.setdefault(uses.index(max(uses)), t.id)
     return out
+
+
+WALK_STEPS = 2   # steps of a used trace the story walks a line each before it summarises the rest
+
+
+def trace_walk_problems(script: Script, exp: Exploration) -> list[str]:
+    """A worked trace the story leans on, said in one summary line ("five guests each flip three, ten
+    end up lit"): the viewer never sees one step happen, so never sees why the state is what it is. Its
+    first steps get a line each, naming what goes in and where it lands; the rest may be summarised."""
+    out = []
+    for t in exp.traces:
+        if len(t.steps) < 2 or not any(set(ln.uses) & set(t.findings) for m in script.moves for ln in m.lines):
+            continue
+        named = walked_steps(script, t)
+        best = max((len(v) for v in named.values()), default=0)
+        need = min(WALK_STEPS, len(t.steps))
+        if best < need:
+            first = "; ".join(f"{s.action!r}" for s in t.steps[:need])
+            out.append(f"trace {t.id} ({t.of}) is used but its steps are never walked: the viewer never sees one "
+                       f"happen. In one move, give its first {need} steps a line each in order, naming what goes in "
+                       f"and where it lands ({first}), then summarise the rest")
+    return out
+
+
+_writer_v6 = v3.writer_problems
+
+
+def writer_problems(script: Script, exp: Exploration):
+    return _writer_v6(script, exp) + trace_walk_problems(script, exp)
+
+
+v3.writer_problems = writer_problems
 
 
 def planner_message(script: Script, exp: Exploration, sid, moves, before):
@@ -253,6 +332,18 @@ def _numbers(v, key=""):
     return v3.flat(v)
 
 
+def _bits(v):
+    """A string of 0s and 1s (a bit array, "10010") as its bits: read as one number it is 1e+31,
+    which no picture of the bits shows."""
+    if isinstance(v, str) and re.fullmatch(r"[01]{2,}", v.strip()):
+        return [int(c) for c in v.strip()]
+    if isinstance(v, dict):
+        return {k: _bits(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_bits(x) for x in v]
+    return v
+
+
 def planner_problems(out: SectionOut, script: Script, exp: Exploration, moves):
     probs, warns = [], []
     want = [(i, j) for i in moves for j in range(len(script.moves[i].lines))]
@@ -326,8 +417,8 @@ def planner_problems(out: SectionOut, script: Script, exp: Exploration, moves):
             if not t or (m.group(2) != "start" and int(m.group(2)) >= len(t.steps)):
                 probs.append(f"{where}: trace_step {b.trace_step!r} is not a step of any trace (T1.start, T1.0, …)")
             elif not any(o.get("kind") == "simulation" for o in b.objects):  # a simulation shows its run's state live
-                state = t.start if m.group(2) == "start" else t.steps[int(m.group(2))].state
-                shown = _numbers([o.get("data", {}) for o in b.objects])
+                state = _bits(t.start if m.group(2) == "start" else t.steps[int(m.group(2))].state)
+                shown = _numbers(_bits([o.get("data", {}) for o in b.objects]))
                 missing = [n for n in v3.flat(state) if not any(v3.same(n, s) or v3.same(s, n) for s in shown)]
                 if missing:
                     probs.append(f"{where}: shows {b.trace_step} but not its values {missing[:5]}; show the step's state exactly")
@@ -376,7 +467,9 @@ def planner_problems(out: SectionOut, script: Script, exp: Exploration, moves):
     probs += pile_problems(out.beats)
     probs += flat_problems(out.beats)
     probs += lopsided_problems(out.beats)
-    probs += crowd_problems(out.beats)
+    p, w = slide_problems(out.beats)
+    probs, warns = probs + p + listed_problems(out.beats) + terms_problems(out.beats), warns + w
+    probs += crowd_problems(out.beats) + kind_problems(out.beats) + cause_problems(out.beats, exp, script)
     probs += renamed_axes_problems(out.beats)
     if out.beats and camera_beats > 0.5 * len(out.beats):
         warns.append(f"the camera moves on {camera_beats} of {len(out.beats)} beats; about a third reads calmer")
@@ -508,6 +601,331 @@ def lopsided_problems(beats) -> list[str]:
                            f"{label!r} is {'even' if even else 'odd'} (the same on both sides of 0), so half of it is cut "
                            f"off; use x=[-{r:g}, {r:g}]")
     return out
+
+
+GAP_AT = re.compile(r"^\s*([^,@]+),([^,@]+)@x=([^:]+)(?::(.*))?$")
+CARD_AT = re.compile(r"\bx\s*=\s*(-?\d+(?:\.\d+)?)\b")
+
+
+def _gap(plot):
+    """A plot's planned gap at an x: (curve a, curve b, x, label), or None."""
+    m = GAP_AT.match(str((plot.get("data") or {}).get("gap") or ""))
+    try:
+        return (m.group(1).strip(), m.group(2).strip(), float(m.group(3)), (m.group(4) or "").strip()) if m else None
+    except ValueError:
+        return None
+
+
+def _mark_xs(b, pid) -> set[float]:
+    """Every x the beat reads plot ``pid`` at: its `points`, `dots` on it, its gap's x, and a
+    number card naming an x ("error at x = 5")."""
+    xs = set()
+    for o in b.objects:
+        d = o.get("data") or {}
+        at = []
+        if o.get("kind") == "plot" and o.get("id") == pid:
+            at = list(d["points"].values()) if isinstance(d.get("points"), dict) else []
+            if _gap(o):
+                at.append([_gap(o)[2]])
+        elif o.get("kind") == "dots" and d.get("on") == pid:
+            at = d.get("at") or []
+        elif o.get("kind") == "number" and CARD_AT.search(str(d.get("label") or "")):
+            at = [[CARD_AT.search(str(d["label"])).group(1)]]
+        for p in at:
+            try:
+                xs.add(round(float(p[0]), 3))
+            except (TypeError, ValueError, IndexError):
+                continue
+    return xs
+
+
+def _quantity(label) -> str:
+    """The first word of a number card's label: what it reads ("gap at x = 2" -> "gap")."""
+    m = re.search(r"[A-Za-z]{3,}", str(label or ""))
+    return m.group(0).lower() if m else ""
+
+
+def _readings(plot, x: float) -> dict[tuple, float]:
+    """What a plot can read live at x: each curve's height ({y}) and the distance between each
+    pair of curves ({gap}), keyed by curve position (labels change: P, then P4)."""
+    import numpy as np
+    from konvey.stage.displays.plot import spec as PS
+    ys = []
+    for expr in _fns(plot).values():
+        try:
+            ys.append(float(PS.fn_of(expr.split("|")[-1])(np.array([x]))[0]))
+        except Exception:  # noqa: BLE001 - malformed data is reported by the plot checks
+            ys.append(float("nan"))
+    out = {("y", i): v for i, v in enumerate(ys)}
+    out |= {("gap", i, j): abs(ys[i] - ys[j]) for i in range(len(ys)) for j in range(i + 1, len(ys))}
+    return {k: v for k, v in out.items() if np.isfinite(v)}
+
+
+def _reads(value, x, plot, key) -> bool:
+    try:
+        v = abs(float(value))
+    except (TypeError, ValueError):
+        return False
+    r = _readings(plot, x).get(key)
+    return r is not None and abs(abs(r) - v) <= 0.03 * max(abs(r), v) + 1e-12
+
+
+def _curve(plot, name) -> int | None:
+    """The position of the curve a gap names: its label, or one of its steps' labels ("y=1 | P2")."""
+    for i, k in enumerate(_fns(plot)):
+        if name.strip() in {k.strip(), *(p.strip() for p in k.split("|"))}:
+            return i
+    return None
+
+
+def _live_key(plot):
+    """The reading a plot's own gap counts: ("gap", i, j) by curve position."""
+    g = _gap(plot)
+    ij = g and sorted(i for i in (_curve(plot, g[0]), _curve(plot, g[1])) if i is not None)
+    return ("gap", *ij) if ij and len(ij) == 2 and ij[0] != ij[1] else None
+
+
+def slide_problems(beats) -> tuple[list[str], list[str]]:
+    """The same reading at a new x, line after line (the gap at 0.5, then at 2, then at 5), drawn
+    as a new dot and a new number card each time: 3b1b slides the one point there while the
+    line is spoken and the number counts as it goes. A problem when the cards read what the plot
+    can count itself (a curve's height, the gap between two curves); a warning otherwise."""
+    from konvey.stage.displays.plot import spec as PS
+    probs, warns = [], []
+    pids = list(dict.fromkeys(o.get("id") for b in beats for o in b.objects if o.get("kind") == "plot"))
+    for pid in pids:
+        spots, cur = [], None   # a spot: the beats where the plot's dots stay at the same x's
+        for b in beats:
+            plot = next((o for o in b.objects if o.get("kind") == "plot" and o.get("id") == pid), None)
+            if plot is None:
+                cur = None
+                continue
+            xs = _mark_xs(b, pid)
+            if xs and (cur is None or not xs <= cur["xs"]):
+                cur = {"b": b, "plot": plot, "xs": xs, "from": cur["xs"] if cur else None, "cards": []}
+                spots.append(cur)
+            if cur:
+                cur["cards"] += [(_quantity((o.get("data") or {}).get("label")), (o.get("data") or {}).get("value"), plot)
+                                 for o in b.objects if o.get("kind") == "number"]
+                if _gap(plot):   # the plot's own live gap readout: it reads "gap" whatever its label
+                    cur["cards"] += [(w, "live", plot) for w in {_quantity(_gap(plot)[3]), "gap"} - {""}]
+        for a, c in zip(spots, spots[1:]):
+            d = c["plot"].get("data") or {}
+            same = {w for w, _, _ in a["cards"]} & {w for w, _, _ in c["cards"]} - {""}
+            if c["from"] is None or c["from"] is not a["xs"] or d.get("slide") is not None or not same:
+                continue
+            new = sorted(c["xs"] - a["xs"])[0]
+            old = min(a["xs"], key=lambda x: abs(x - new))
+            try:
+                x0, x1 = PS.pair(d.get("x"), "x")
+            except Exception:  # noqa: BLE001 - malformed data is reported by the plot checks
+                continue
+            if abs(new - old) < 0.05 * (x1 - x0):
+                continue
+            word = sorted(same)[0]
+
+            def reads(cards, x, k):
+                return any(_live_key(plot) == k if v == "live" else _reads(v, x, plot, k)
+                           for w, v, plot in cards if w in same)
+            key = next((k for k in _readings(c["plot"], new) if reads(a["cards"], old, k) and reads(c["cards"], new, k)),
+                       None)
+            fns = [k.split("|")[-1].strip() for k in _fns(c["plot"])]
+            where = (f"move {c['b'].move} line {c['b'].line}: on {pid} the {word!r} reading jumps from x={old:g} "
+                     f"to x={new:g} (drawn again at the new x, a still picture per x)")
+            if key is None:
+                warns.append(f"{where}; if the plot can show that value (a curve's height, the gap between two "
+                             f"curves), slide the point there instead: \"slide\": [{old:g}, {new:g}]")
+                continue
+            if key[0] == "gap":
+                read = (f'"points": {{"x = {{x}}": [{old:g}, "{fns[key[1]]}"]}}, '
+                        f'"gap": "{fns[key[1]]},{fns[key[2]]}@x={old:g}: {word} {{gap}}"')
+            else:
+                read = f'"points": {{"{word} {{y}}": [{old:g}, "{fns[key[1]]}"]}}'
+            probs.append(f"{where}. Slide it: on the line that goes there, give {pid} {read}, \"slide\": "
+                         f"[{old:g}, {new:g}] (the dot rides the curve and the number counts as it goes); drop "
+                         f"the {word!r} number cards, and write the point at x={new:g} on the lines after")
+    return probs[:4], warns[:3]
+
+
+LISTED_AT = re.compile(r"\bx\s*=\s*(-?\d+(?:\.\d+)?)\s*[:=,]\s*(-?\d+(?:\.\d+)?(?:e-?\d+)?)")
+
+
+def _listed(o) -> list[tuple[float, object]]:
+    """(x, value) pairs a bars or array picture lists by x: bars labelled "x = 2", array items "x=2: 0.083"."""
+    d = o.get("data") or {}
+    out = []
+    if o.get("kind") == "bars":
+        for label, v in zip(d.get("labels") or [], d.get("values") or []):
+            m = CARD_AT.search(str(label))
+            if m:
+                out.append((float(m.group(1)), v))
+    elif o.get("kind") == "array":
+        out = [(float(m.group(1)), m.group(2)) for m in (LISTED_AT.search(str(v)) for v in d.get("values") or []) if m]
+    return out
+
+
+def listed_problems(beats) -> list[str]:
+    """A plot's reading at several x's set out as bars or an array of values beside it (the error at 1, 2, 3, 5):
+    a chart of what the plot can show itself. 3b1b slides the point along the curve with the number counting."""
+    out, done = [], set()
+    for b in beats:
+        plots = [o for o in b.objects if o.get("kind") == "plot"]
+        for o in b.objects:
+            pairs = _listed(o)
+            if o.get("id") in done or len({x for x, _ in pairs}) < 2:
+                continue
+            for plot in plots:
+                hits = {}
+                for key in _readings(plot, pairs[0][0]):
+                    xs = sorted({x for x, v in pairs if _reads(v, x, plot, key)})
+                    if len(xs) >= 2:
+                        hits[key] = xs
+                if not hits:
+                    continue
+                key, xs = max(hits.items(), key=lambda kv: len(kv[1]))
+                fns = [k.split("|")[-1].strip() for k in _fns(plot)]
+                read = (f'"points": {{"x = {{x}}": [{xs[0]:g}, "{fns[key[1]]}"]}}, '
+                        f'"gap": "{fns[key[1]]},{fns[key[2]]}@x={xs[0]:g}: gap {{gap}}"' if key[0] == "gap"
+                        else f'"points": {{"{{y}}": [{xs[0]:g}, "{fns[key[1]]}"]}}')
+                done.add(o.get("id"))
+                out.append(f"move {b.move} line {b.line}: {o.get('kind')} {o.get('id')} lists {plot.get('id')}'s "
+                           f"{'gap between ' + fns[key[1]] + ' and ' + fns[key[2]] if key[0] == 'gap' else 'height'} "
+                           f"at x = {', '.join(f'{x:g}' for x in xs)}: values the plot shows itself. Slide instead: on "
+                           f"the line that walks out, give {plot.get('id')} {read}, \"slide\": [{xs[0]:g}, {xs[-1]:g}] "
+                           f"(the dot rides the curve and the number counts as it goes), and drop {o.get('id')}")
+                break
+    return out[:3]
+
+
+def cause_problems(beats, exp: Exploration, script: Script | None = None) -> list[str]:
+    """Trace steps on the screen: a step's first beat is a line that walks that step (a step put on a
+    line about something else makes the picture change for no reason the viewer hears), and a step
+    whose action names what goes in ("insert kim: slots 2, 9") shows that name in a note with an
+    arrow to each place it lands, not only the new state."""
+    traces, out, seen = {t.id: t for t in exp.traces}, [], set()
+    for b in beats:
+        m = re.match(r"^(T\w+)\.(\d+)$", b.trace_step or "")
+        t = traces.get(m.group(1)) if m else None
+        if not t or int(m.group(2)) >= len(t.steps) or b.trace_step in seen:
+            continue   # the first beat that shows a step shows its cause; later ones talk about it
+        seen.add(b.trace_step)
+        j = int(m.group(2))
+        action = t.steps[j].action
+        line = script.moves[b.move].lines[b.line].line if script is not None else None
+        if line is not None and not _names_step(line, t, j):
+            out.append(f"move {b.move} line {b.line}: trace_step {b.trace_step} ({action!r}) is on a line about "
+                       f"something else ({line[:60]!r}); put it on the line that says that step, or leave this "
+                       "beat without trace_step")
+            continue
+        said = [w for w in item_words(t, j) if line is None or re.search(rf"\b{re.escape(w)}", line, re.I)]
+        name = said[0] if said else None   # the item the line says goes in ("kim"), if it says one
+        if not name or not re.search(r"\d", action):
+            continue
+        text = " ".join(str((o.get("data") or {}).get("text", "")) for o in b.objects if o.get("kind") == "note").lower()
+        if name.lower() not in text:
+            out.append(f"move {b.move} line {b.line}: shows {b.trace_step} ({action!r}) as its new state only; add a "
+                       f"note with the text {name!r} on the picture, \"at\" each place it lands (one arrow "
+                       f"each), with those places highlighted, so the viewer sees why they change")
+    return out[:4]
+
+
+def kind_problems(beats) -> list[str]:
+    """Plans the Director cannot draw: one id that changes kind (a grid, then a drawing, then an
+    array: an id keeps one tag, so each switch is rejected) and a one-row grid wider than a row fits
+    (an array of that many wraps into rows itself)."""
+    out, kinds, wide = [], {}, set()
+    for b in beats:
+        for o in b.objects:
+            oid, kind, d = o.get("id"), o.get("kind"), o.get("data") or {}
+            first = kinds.setdefault(oid, (kind, b))
+            if first[0] != kind and len(out) < 3:
+                out.append(f"move {b.move} line {b.line}: {oid} was a {first[0]} (move {first[1].move} line "
+                           f"{first[1].line}) and is a {kind} here; one id keeps one kind. Keep the {first[0]} and "
+                           f"change its data, or give the {kind} its own id")
+                kinds[oid] = (kind, b)
+            try:
+                rows, cols = int(d.get("rows") or 0), int(d.get("cols") or 0)
+            except (TypeError, ValueError):
+                rows = cols = 0
+            if kind == "grid" and rows == 1 and cols > 16 and oid not in wide:
+                wide.add(oid)
+                out.append(f"move {b.move} line {b.line}: grid {oid} is one row of {cols} cells, wider than the "
+                           f"stage; plan it as an array (values in order, \"highlight\": [indices]): it wraps into "
+                           "rows and keeps each cell's index")
+    return out[:5]
+
+
+MIN_TERMS = 3  # stages a sum built term by term shows at least (the user: 3 or 4 terms on screen)
+
+
+def _terms(expr: str):
+    """An expression's top-level terms, each as its values at a few x's (so 0.5*x^2 is x^2/2)."""
+    import numpy as np
+    from konvey.stage.displays.plot import spec as PS
+    xs, parts, depth, cur = np.linspace(-1.3, 1.7, 7), [], 0, ""
+    for i, ch in enumerate(expr.replace(" ", "")):
+        depth += ch in "([{"
+        depth -= ch in ")]}"
+        if ch in "+-" and depth == 0 and cur and cur[-1] not in "*/^eE(":
+            parts.append(cur)
+            cur = ""
+        cur += ch
+    parts.append(cur)
+    try:
+        vals = [PS.fn_of(t)(xs) for t in parts if t not in "+-"]
+    except Exception:  # noqa: BLE001 - malformed data is reported by the plot checks
+        return None
+    return [np.broadcast_to(v, xs.shape) for v in vals]
+
+
+def _within(small, big) -> bool:
+    """Every term of ``small`` is a term of ``big`` (matched one to one)."""
+    import numpy as np
+    left = list(big)
+    for t in small:
+        k = next((i for i, u in enumerate(left) if np.allclose(t, u, rtol=1e-4, atol=1e-9)), None)
+        if k is None:
+            return False
+        left.pop(k)
+    return True
+
+
+def terms_problems(beats) -> list[str]:
+    """A curve that grows by a term (a sum built up: each expression the one before plus more) shown
+    at only two stages: the viewer sees one bend, not the sum closing in. Build it through 3-4 stages.
+    A knob turned (terms dropped as well as added) is not a sum built up."""
+    out = []
+    pids = list(dict.fromkeys(o.get("id") for b in beats for o in b.objects if o.get("kind") == "plot"))
+    for pid in pids:
+        exprs, where = [], {}   # the plot's distinct expressions in order; the beat each first appears on
+        for b in beats:
+            for o in b.objects:
+                if o.get("kind") == "plot" and o.get("id") == pid:
+                    for expr in _fns(o).values():
+                        for e in (p.strip() for p in str(expr).split("|") if p.strip()):
+                            key = re.sub(r"\s+", "", e)
+                            if key not in where:
+                                where[key] = b
+                                exprs.append(e)
+        terms = [_terms(e) for e in exprs]
+        chain, grew, knob = [1] * len(exprs), None, False
+        for j, tj in enumerate(terms):
+            for i in range(j):
+                ti = terms[i]
+                if ti is None or tj is None:
+                    continue
+                if len(tj) > len(ti) and _within(ti, tj):
+                    chain[j] = max(chain[j], chain[i] + 1)
+                    grew = grew or (exprs[i], exprs[j])
+                elif len(tj) < len(ti) and _within(tj, ti):
+                    knob = True
+        if grew and not knob and max(chain) < MIN_TERMS:
+            b = where[re.sub(r"\s+", "", grew[1])]
+            out.append(f"move {b.move} line {b.line}: {pid}'s curve grows by a term only once ({grew[0]} -> {grew[1]}): "
+                       f"one bend. A sum built term by term shows at least {MIN_TERMS}-4 stages: start it from its "
+                       f"first term or two and step through them on one line (\"S\": \"a | a + b | a + b + c | ...\"), "
+                       f"the formula gaining each term as the curve bends")
+    return out[:2]
 
 
 def state_problems(beats) -> list[str]:

@@ -111,9 +111,16 @@ def test_derive_shot_puts_picture_left_words_right():
     assert b.overlay[-1].id == "r"   # marks stay on their parts, outside the composition
 
 
+def test_a_compare_shot_with_one_picture_lays_out_like_full():
+    one = parse_beats('<beats><beat shot="compare"><bars id="b" labels="a" values="1"></bars>'
+                      '<text id="t">a note</text></beat></beats>')[0]
+    full = parse_beats('<beats><beat shot="full"><bars id="b" labels="a" values="1"></bars>'
+                       '<text id="t">a note</text></beat></beats>')[0]
+    assert [c.attrs.get("class") for c in one.overlay[0].children] == [c.attrs.get("class") for c in full.overlay[0].children]
+    assert set(one.leaves()) == set(full.leaves())
+
+
 def test_shot_errors_name_the_fix():
-    with pytest.raises(BeatError, match="needs two pictures"):
-        parse_beats('<beats><beat shot="compare"><bars id="b" labels="a" values="1"></bars></beat></beats>')
     with pytest.raises(BeatError, match='shot="title"'):
         parse_beats('<beats><beat shot="full"><text id="t">only words</text></beat></beats>')
     with pytest.raises(BeatError, match="use one of"):

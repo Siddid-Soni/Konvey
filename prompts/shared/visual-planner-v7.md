@@ -93,6 +93,10 @@ simulation itself: give its beats `trace_step` and let the run show the state.
 A move marked `walks_trace` walks through that trace: each step's beat has `"trace_step": "T1.2"` (`"T1.start"` for
 the state before the first step) and its objects show that step's `state` exactly, the same ids
 every step, `source` naming the step (`"T1.steps[2].state"`). Every step is shown, in order.
+Show a step's cause, not only its result: when its `action` names something that goes in and where
+it lands ("Kim goes to slots 2 and 9"), its beat has a `note` with that name pointing at each place
+(`"at"`: one arrow each) and those places highlighted. The new state alone shows that something
+changed, not why.
 
 ## The camera
 

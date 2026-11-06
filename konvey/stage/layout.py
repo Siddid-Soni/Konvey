@@ -64,7 +64,7 @@ def _emit(node: Node, sizes: dict[str, tuple[float, float]], parent: str = "") -
         if attached(node):   # placed against another element after layout: takes no room
             style += ";position:absolute;left:0;top:0"
         grow = " growable" if growable(node) else ""
-        return f'<div{ident} class="leaf{grow} {cls}" style="{style}"></div>'
+        return f'<div{ident} class="leaf{grow} {cls}" data-tag="{node.tag}" style="{style}"></div>'
     inner = "".join(_emit(c, sizes, cls) for c in node.children)
     return f'<div{ident} class="{cls}" style="{style}">{inner}</div>'
 
@@ -104,7 +104,9 @@ _READ_JS = """
       const out_ = {top: p.top - r.top, bottom: r.bottom - p.bottom, left: p.left - r.left, right: r.right - p.right};
       const sides = Object.entries(out_).filter(([, v]) => v > 1).map(([k, v]) => `${k} by ${Math.round(v)}px`);
       if (sides.length) {
-        problems.push(`${name(el)} sticks out of its container (${sides.join(', ')}); give it less content, a smaller size=, or more room`);
+        // a long array has a better fix than shrinking: fewer cells to a row
+        const hint = el.dataset.tag === 'array' ? '; for a long array, wrap="8" (cells in a row) before a smaller size=' : '';
+        problems.push(`${name(el)} sticks out of its container (${sides.join(', ')}); give it less content, a smaller size=, or more room${hint}`);
         // For the auto-shrink pass: which leaves could make room, and how much is missing.
         const own = el.classList.contains('leaf') ? [el] : [...el.querySelectorAll('.leaf')];
         const near = [...el.parentElement.querySelectorAll('.leaf')];

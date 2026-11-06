@@ -1,4 +1,4 @@
-| `dots` | points of a picture, at its own coordinates, each with an optional name or number (where something lands, the corners of a figure, the steps of a run); other marks name them `id.k`; takes no room in the layout | `on` (the picture), `at="x,y; x,y"`, `labels="A,,C"` (blank skips one; `|` between them when a name has a comma: `"12,367 books|91,380 books"`) or `numbered="true"`, `color` (accent), `dim="true"`, `size` |
+| `dots` | (needs an `id`, like every mark) points of a picture, at its own coordinates, each with an optional name or number (where something lands, the corners of a figure, the steps of a run); other marks name them `id.k`; takes no room in the layout | `on` (the picture), `at="x,y; x,y"`, `labels="A,,C"` (blank skips one; `|` between them when a name has a comma: `"12,367 books|91,380 books"`) or `numbered="true"`, `color` (accent), `dim="true"`, `size` |
 
 ### Marks on a picture: building it up step by step (`dots`, `path`, `arc`, `angle`, `brace on`, `note`)
 

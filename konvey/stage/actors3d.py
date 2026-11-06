@@ -37,6 +37,7 @@ import re
 import numpy as np
 
 from manimlib import *  # noqa: F401,F403
+from scipy.integrate import trapezoid
 from scipy.spatial.transform import Rotation
 
 from .expr import parse_expr
@@ -340,7 +341,7 @@ class Slice:
         self.cut.set_stroke(opacity=show)
         length = float(np.linalg.norm(b - a))
         f = np.array([surf.f(x, y) for x, y in xy])
-        fw.values[f"{self.id}.area"] = float(np.trapz(f, dx=length / (len(f) - 1)))
+        fw.values[f"{self.id}.area"] = float(trapezoid(f, dx=length / (len(f) - 1)))
         fw.values[f"{self.id}.at"] = float(st["at"])
 
     def view(self):

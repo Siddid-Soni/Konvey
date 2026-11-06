@@ -582,6 +582,19 @@ def test_draw_block_maps_coordinates_and_morphs_by_id():
 
 
 @manim
+def test_draw_icon_is_drawn_at_its_place_with_its_label_under_it():
+    from konvey.stage.displays.draw.mobject import DrawBlock
+
+    b = DrawBlock(leaf('<draw id="x" w="8" h="4"><icon id="c" x="2" y="2" h="1.5" name="cpu" label="processor"/></draw>'))
+    shape, lab = b.items["c"]
+    assert shape.get_center()[0] == pytest.approx(2 - 4, abs=0.05)
+    assert shape.get_height() == pytest.approx(1.5, rel=0.25)          # the 24-grid frame, drawing a little less
+    assert lab.get_center()[1] < shape.get_bottom()[1]                  # the name under it
+    with pytest.raises(BeatError, match="no such icon"):
+        DrawBlock(leaf('<draw id="x"><icon id="c" x="1" y="1" h="1" name="no-such-thing-at-all"/></draw>'))
+
+
+@manim
 def test_draw_move_attribute_slides_or_hops():
     from konvey.stage.displays.draw.mobject import DrawBlock
     from konvey.stage.motion import morph

@@ -46,7 +46,7 @@ world) and the words (headings, text, tex, values) and lays them out:
 
 | shot | screen | use it when |
 |---|---|---|
-| `full` | the picture fills the stage; words, if any, in one line under it | the picture is the point (most beats) |
+| `full` | the picture fills the stage; words, if any, in one line under it | the picture is the point (most beats); needs a picture: a beat of words alone is `title` |
 | `question` | one large line across the top (the first text or heading), the picture under it | the scene opens on a question about something concrete |
 | `derive` | the picture left, the words stacked right | an equation is built beside the thing it comes from |
 | `compare` | the pictures side by side at the same size, words under them | two cases, two views of one thing, before and after |
@@ -160,10 +160,12 @@ Coordinates are world units, z is up, the floor is z = 0.
 | `<particles id>` | bodies pushing and pulling, traced with fading tails: `system="figure8\|planets\|binary\|three\|charges\|springs"`, or `bodies="m, x,y,z, vx,vy,vz[, q]; …"` with `force="gravity\|charge\|spring"` (any of them; springs along `links="0-1, 1-2"`, `stiffness`); `t`, `tail`, `scale` |
 | `<waves id>` | a sheet coloured (and with `lift`, raised) by a field changing in time: ripples from `sources="x,y; x,y"` (`wavelength`; rings leave the sources at t = 0), or any `fn="…"` in x, y, t (values -1 … 1: `sin(2*x)*cos(3*t)` a standing wave); `show="intensity"` (how hard each point shakes: bright and dark fringes); `size`, `t` |
 | `<flow id>` | lines along a vector field `fn="vx; vy; vz"`, a glow sliding along each one, coloured by speed (where the field dies out shows dark): `on="sphereId"` or `on="parametricId"` (the part along the surface; the surface turns dark and matte behind them), or no `on` for the floor; `count` (600), `life` (line length in seconds of flow), `t` |
+| `<stack3d id>` | a stack of layers that data passes through (the layers of a network, a protocol stack, levels of a memory hierarchy), laid out by the renderer as glass slabs in a row: `layers="embed, (attention, mlp)*4, out"` (bottom to top, `name*n` repeats a layer, `(…)*n` a pattern; the same in every beat), `groups="lower:0-4; upper:5-9"` (a bracket and name under each run of layers), `highlight` / `dim` (layer indices `"2,5-7"` or a kind `"mlp"`), `links="4>5-9:cache"` (what one layer hands to others: a rail from it down into each), `tokens="the,cat,sat"` (or a count) with `at="3"`: a sheet of column vectors at that layer (`-1` in front of the first); **a later `at` sends it through the layers between while the line is spoken**, each layer lighting as it passes. `colors="mlp:c2"`, `labels="runs\|key\|none"`. Never build such a stack from `<solid>` boxes. |
+| `<grid3d id>` | a block of cells: a tensor, an image's pixels × channels, a box of unit cubes. `shape="nx,ny,nz"` (cells along x, y, z; ≤ 64 each: scale a big one down), `labels="rows,columns,depth"` (names of the three edges; may change beat to beat), `merge="1,4,1"` (cells merge in groups of that many along an axis: the lines between fade and the block shortens; each later factor a multiple of the earlier), `slices="x"` (cut along one axis) with `gap="0.8"` (pull the slices apart, in cells), `paint="0-1:c3; 2:accent"`, `highlight="3"` (slices by index); `color`. |
 | `<slice id of="surfaceId">` | the vertical plane `dir="1,1"` (its normal) through the point `at` along it, the cut through the surface lit and the area under it filled; a later `at` sweeps it |
 
 Expressions (`fn`) use the variables named above, numbers, `pi`, `e`, `+ - * / ^`, and
-`sin cos tan exp log sqrt abs arctan sinh cosh tanh floor ceil sign`.
+`sin cos tan exp log sqrt abs arctan asin acos sinh cosh tanh floor ceil sign`.
 
 Values for `<value bind=…>`: `<shadowId>.area`, `<fieldId>.zeros`, `<pointId>.f` (height at the
 point), `.x`, `.y`, `.slope`, `.step` (descent steps taken), `<sliceId>.area`, `<sliceId>.at`.
@@ -199,7 +201,8 @@ holds still during a beat and moves only when the next beat asks for a different
   vertical, phi = tilt (0 = top-down, 90 = side-on). A top-down `phi="5"` turns a floor plan
   or a shadow into a flat picture.
 - `zoom` (> 1 = closer) only to push in on a detail; otherwise the camera frames what it shows
-  inside the focus box.
+  inside the focus box. `push="1.3"` keeps that framing but comes 1.3× closer (a figure with
+  empty margins).
 Put the camera in every beat that has a world.
 
 ## Rules

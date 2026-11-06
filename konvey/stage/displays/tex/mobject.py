@@ -25,7 +25,8 @@ def stages(node: Node) -> list[str]:
     tex = node.segments[0][0]
     if not node.attrs.get("follow", "").strip():
         return [tex]
-    return [t.strip() for t in tex.split("||") if t.strip()] or [tex]
+    # "\|\|" is how the docs' markdown tables spell the separator, and models copy it as it is written
+    return [t.strip() for t in tex.replace(r"\|\|", "||").split("||") if t.strip()] or [tex]
 
 
 def paint(node: Node) -> dict[str, str]:

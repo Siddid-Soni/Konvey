@@ -36,6 +36,25 @@ def _link(a: np.ndarray, b: np.ndarray, color: str) -> Arrow:
                  max_tip_length_to_length_ratio=0.35)
 
 
+WRAP = 16    # cells in a row before a plain array wraps (more do not fit across the stage)
+
+
+def _per_row(node: Node, n: int) -> int:
+    """How many cells a row holds: ``wrap="8"``, else WRAP for a long plain array (rows of equal
+    length); a linked list or an array with chains below stays one row."""
+    raw = node.attrs.get("wrap", "").strip()
+    if raw:
+        try:
+            k = int(raw)
+        except ValueError:
+            raise BeatError(f'<array id={node.id}> wrap="{raw}": the number of cells in a row, e.g. "8"') from None
+        return max(1, k)
+    if n <= WRAP or _flag(node, "linked") or node.attrs.get("chains", "").strip():
+        return max(n, 1)
+    rows = -(-n // WRAP)
+    return -(-n // rows)
+
+
 class ArrayBlock(Block):
     tag = "array"
 
@@ -66,6 +85,10 @@ class ArrayBlock(Block):
             self.empty.add(DashedVMobject(Square(cell_h), num_dashes=16).set_stroke(th.muted, 1.5, 0.6))
         linked = _flag(node, "linked")
         self.cells.arrange(RIGHT, buff=LINK if linked else 0.08)
+        per_row = _per_row(node, n)
+        if per_row < n:   # a long row (a 32-bit filter) wraps into rows, indices still counted along
+            gap = (0.65 * size / 30) * 0.5 + 0.3 + (0.9 if node.attrs.get("pointers", "").strip() else 0.0)
+            self.cells.arrange_in_grid(n_cols=per_row, h_buff=0.08, v_buff=gap, fill_rows_first=True)
         self.values = [str(v).strip() for v in values]   # motion.py matches cells by value
         # linked: each cell points to the next, the last to nothing (a linked list)
         self.links = VGroup(*(_link(a.get_right(), b.get_left(), th.muted)
@@ -134,12 +157,32 @@ class ArrayBlock(Block):
             self.pointer_at.append(i)
         parts.append(self.pointers)
         super().__init__(*parts)
-        self.set_content(node, "values", "index", "linked", "chains")
+        self.set_content(node, "values", "index", "linked", "chains", "wrap")
+
+
+def _point(self, i: float, _y: float = 0.0) -> np.ndarray:
+    """The centre of cell i (counted from 0, whatever the index labels say) on the page now, so a
+    mark can point at a cell (a note "at" cells 1, 8 and 14: one arrow each). The second number,
+    if given, is ignored: an array has one row of indices even when it wraps."""
+    n = len(self.cells)
+    if not n or not -0.5 <= i <= n - 0.5:
+        raise BeatError(f"cell {i:g} is not in this array (cells 0-{n - 1}); a mark on an array names a cell by "
+                        'its position from 0: at="3; 7"')
+    k = int(np.clip(round(i), 0, n - 1))
+    return self.cells[k].get_center()
+
+
+def _bounds(self) -> tuple[float, float, float, float]:
+    (a, b, _), (c, d, _) = self.cells.get_corner(DL), self.cells.get_corner(UR)
+    return a, b, c, d
+
+
+ArrayBlock.point, ArrayBlock.bounds = _point, _bounds
 
 
 def _array(old: ArrayBlock, new: ArrayBlock) -> Animation:
     anims = []
-    pairs = _match_by_value(old.values, new.values)
+    pairs = _in_place(old.values, new.values) or _match_by_value(old.values, new.values)
     used_old = set(pairs.values())
     hops = _hoppers(pairs)
     for j, cell in enumerate(new.cells):
@@ -184,6 +227,16 @@ def _chains(old: ArrayBlock, new: ArrayBlock) -> list[Animation]:
                      else GrowArrow(new.chain_links[j]))
     anims += [FadeOut(old.chain_links[i]) for i in links.values()]
     return anims
+
+
+def _in_place(old: list[str], new: list[str]) -> dict[int, int] | None:
+    """Each cell to itself when the row keeps its length and only a few cells change value (bits set,
+    a count going up): those cells change where they are. Matched by value instead, a 0 would fly
+    off to wherever another 0 sits. A reordering (a sort, an insert) changes most places: None."""
+    if len(old) != len(new) or not old:
+        return None
+    changed = sum(a != b for a, b in zip(old, new))
+    return {j: j for j in range(len(new))} if changed <= max(1, len(new) // 3) else None
 
 
 def _match_by_value(old: list[str], new: list[str]) -> dict[int, int]:
@@ -232,6 +285,6 @@ def morph(old: ArrayBlock, new: ArrayBlock, sources=None) -> Animation:
 def sources(new: ArrayBlock, old) -> list:
     """Cells being looked at: under a pointer, or an item that just hopped to a new place
     (read from the old cell while it is still moving there)."""
-    pairs = _match_by_value(old.values, new.values) if isinstance(old, ArrayBlock) else {}
+    pairs = (_in_place(old.values, new.values) or _match_by_value(old.values, new.values)) if isinstance(old, ArrayBlock) else {}
     looked = set(new.pointer_at) | _hoppers(pairs)
     return [(new.values[j], old.cells[pairs[j]][1] if j in pairs else new.cells[j][1]) for j in sorted(looked)]

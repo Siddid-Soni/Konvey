@@ -1,6 +1,6 @@
 | `draw` | a flat diagram you build from shapes (see below) | `w`, `h` (size in u, default 8 × 4), `x="0,12"` `y="0,5"` (its own coordinates, default 0..w and 0..h, y up), `size` (label font, 26) |
 
-**`<draw>`: when no tag above is the object the narration talks about**, build it from shapes
+**`<draw>`: when no tag above is the object the narration talks about** (points on a plotted curve are not: they are `<dots on="plot id" at="x,y">` on that plot), build it from shapes
 instead of forcing it into cells or bars that only resemble it (a number line with marks, a
 balance, a lever, a plane figure with given corners; things piled on posts are a
 `<collection look="stacks">`). Children,
@@ -12,11 +12,12 @@ sends it back):
 | shape | attributes |
 |---|---|
 | `<rect>` | `x`, `y` (centre), `w`, `h`, `round` (corner radius), `color` (c1), `fill` (opacity 0–1, default 0.85; `none` = outline), `label` (text in the middle) |
-| `<circle>` | `x`, `y`, `r`, `color`, `fill`, `label` |
+| `<circle>` | `x`, `y`, `r`, `color`, `fill`, `dashed="true"` (a dashed outline, no fill), `label` |
 | `<polygon>` | `points="x,y; x,y; x,y"`, `color`, `fill`, `label` |
 | `<line>` | `from="x,y" to="x,y"` or `points="x,y; x,y; …"`, `arrow="true"`, `dashed="true"`, `width` (4), `color` (ink), `label` |
 | `<label>` | `x`, `y`, `text`, `color`, `size` (22 or more) |
-| `<arc>` | `x`, `y` (centre), `r`, `from`, `to` (degrees counter-clockwise from the +x direction), `color`, `width` (3), `fill` (a value fills the wedge), `label` (placed inside the angle, just past the arc). An angle mark: centre on the vertex, `from`/`to` = the directions of its two sides; the same angle copied elsewhere gets the same colour |
+| `<icon>` | `x`, `y` (centre), `h` (height), `name` (a line icon from the built-in Tabler set: `cpu`, `server`, `database`, `user`, `file-text`…), `color` (c1), `label` (under it): a thing with a look of its own (a processor, a disk, a person) instead of a labelled box |
+| `<arc>` | `x`, `y` (centre), `r`, `from`, `to` (degrees counter-clockwise from the +x direction), `color`, `width` (3), `fill` (a value fills the wedge), `dashed="true"`, `label` (placed inside the angle, just past the arc). An angle mark: centre on the vertex, `from`/`to` = the directions of its two sides; the same angle copied elsewhere gets the same colour |
 
 Write the whole drawing in every beat (it is a snapshot like everything else) with the same draw
 id and the same shape ids: a shape whose `x`/`y`/size/colour/label changed slides and morphs to

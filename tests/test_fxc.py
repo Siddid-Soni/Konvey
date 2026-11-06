@@ -218,3 +218,17 @@ def test_draw_labels_keep_a_readable_size_when_the_page_shrinks_the_drawing():
     d.scale(0.5)
     assert d.items["t"].get_height() == pytest.approx(h, rel=0.01)    # and survives the page's shrink
     assert d.items["r"].get_width() == pytest.approx(0.5, rel=0.01)   # the picture itself shrinks
+
+
+@manim
+def test_draw_circle_and_arc_can_be_dashed_outlines():
+    from manimlib import DashedVMobject
+
+    from konvey.stage.displays.draw.mobject import DrawBlock
+    d = DrawBlock(leaf('<draw id="x" w="4" h="4" x="-2,2" y="-2,2"><circle id="ring" x="0" y="0" r="1" '
+                       'fill="0.5" dashed="true"/><arc id="ang" x="0" y="0" r="0.5" from="0" to="60" dashed="true"/>'
+                       '<circle id="solid" x="1" y="1" r="0.3"/></draw>'))
+    ring, ang, solid = (d.items[i][0] for i in ("ring", "ang", "solid"))
+    assert isinstance(ring, DashedVMobject) and isinstance(ang, DashedVMobject)
+    assert not isinstance(solid, DashedVMobject)
+    assert all(dash.get_fill_opacity() == 0 for dash in ring)

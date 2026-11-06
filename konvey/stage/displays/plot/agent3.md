@@ -8,7 +8,7 @@ Write the function, never its points: the engine traces each `fn` exactly, puts 
 Never draw a function with `<draw>` lines.
 
 - `fn`: expressions in `x` with numbers, `pi`, `e`, `+ - * / ^`, `sin cos tan exp log sqrt abs
-  arctan sinh cosh tanh floor ceil sign` (`2x`, `3(x+1)`, `2pi` are fine). The label is shown
+  arctan asin acos sinh cosh tanh floor ceil sign` (`2x`, `3(x+1)`, `2pi` are fine). The label is shown
   at the curve's end: words (`total`, `cost`) or math (`f`, `g_2`, `x^2`, `\cos x`).
 - `x`, `y`: the full range the narration talks about (a "wider range" claim needs that range).
 - `points`: `name: x,y`; y may be a curve's label (the dot sits on it). `mark`: a dashed line at
@@ -23,7 +23,8 @@ Never draw a function with `<draw>` lines.
     The curve enters as the first expression and bends through the rest, one step about every
     second, while the line is spoken: terms added one by one, or a knob turned
     (`1 + 0.5x^2 | 1 | 1 - 0.5x^2`). One label, or one per step between `|`. Give the beat
-    room (`t`) for its steps; the next beat starts from the last step (write it plain there).
+    room (`t`) for its steps; the next beat starts from the last step. A sum built term by
+    term shows 3-4 stages, not one bend: start from its first term or two.
   - Slide: `slide="0 -> 2"` moves everything of this plot written at x=0 (a `points` dot, an
     `x=0` mark, a `@x=0` gap) to x=2 during the line, smoothly; points on a curve ride along it.
     With `drop="true"` each point has a dashed line down to the x axis.

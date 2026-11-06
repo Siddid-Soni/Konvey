@@ -96,6 +96,19 @@ def test_check_drawn_wants_the_planned_functions_and_range():
     assert "needs <plot" in d.check_drawn("b0", obj, [other])[0]
 
 
+def test_a_planned_gap_is_checked_and_must_be_drawn():
+    d = for_kind("plot")
+    ok = {"fns": {"f": "cos(x)", "P": "1 - x^2/2"}, "x": [-3, 3], "slide": [0.5, 2],
+          "points": {"x = {x}": [0.5, "f"]}, "gap": "f,P@x=0.5: error {gap}"}
+    assert d.check_object(ok) == []
+    assert any("plot gap" in p for p in d.check_object({**ok, "gap": "error at 0.5"}))
+    obj = SimpleNamespace(kind="plot", data=ok)
+    attrs = 'fn="f: cos(x); P: 1 - x^2/2" x="-3,3" points="x = {x}: 0.5,f" slide="0.5 -> 2"'
+    drawn = leaf(f'<plot id="x" {attrs} gap="f,P@x=0.5: error {{gap}}"></plot>')
+    assert d.check_drawn("b0", obj, [drawn]) == []
+    assert "gap" in d.check_drawn("b0", obj, [leaf(f'<plot id="x" {attrs}></plot>')])[0]
+
+
 # --- the mobject -----------------------------------------------------------------------------
 @manim
 def test_axes_cross_at_the_origin_with_numbered_ticks():
@@ -231,3 +244,95 @@ def test_a_stage_moves_what_sat_at_the_slide_start():
     st = _stage(a, 1, (0.0, 2.0))
     assert st["fn"] == "g: x^2" and "slide" not in st
     assert st["points"] == "A: 2.0,g" and st["gap"] == "g,g@x=2.0: e {gap}"
+
+
+def test_steps_written_again_on_the_next_beat_start_at_the_last_step():
+    from konvey.stage.parse import prepare_beats
+
+    plot = '<plot id="g" fn="c: cos(x); P | Q: 1 | 1 - x^2/2" x="-3,3"></plot>'
+    tex = '<tex id="f" follow="g">1 || 1 - x^2/2</tex>'
+    beats = parse_beats(f'<beats><beat vo="a">{plot}{tex}</beat><beat vo="b">{plot}{tex}</beat>'
+                        f'<beat vo="c">{plot}{tex}</beat></beats>')
+    prepare_beats(beats, strict=False)
+    first, *later = [b.leaves() for b in beats]
+    assert first["g"].attrs["fn"] == "c: cos(x); P | Q: 1 | 1 - x^2/2" and first["f"].attrs["follow"] == "g"
+    for lv in later:
+        assert lv["g"].attrs["fn"] == "c: cos(x); Q: 1 - x^2/2"
+        assert lv["f"].segments[0][0] == "1 - x^2/2" and "follow" not in lv["f"].attrs
+
+
+def test_a_repeated_slide_starts_at_its_end_and_new_steps_still_play():
+    from konvey.stage.parse import prepare_beats
+
+    slid = '<plot id="g" fn="f: x^2" x="-3,3" points="A: 0,f" slide="0 -> 2"></plot>'
+    new = '<plot id="g" fn="f | h: x^2 | x^3" x="-3,3"></plot>'
+    beats = parse_beats(f'<beats><beat vo="a">{slid}</beat><beat vo="b">{slid}</beat>'
+                        f'<beat vo="c">{new}</beat></beats>')
+    prepare_beats(beats, strict=False)
+    _, again, changed = [b.leaves()["g"].attrs for b in beats]
+    assert "slide" not in again and again["points"] == "A: 2.0,f"
+    assert changed["fn"] == "f | h: x^2 | x^3"
+
+
+def test_inverse_trig_is_allowed_and_gaps_outside_its_domain():
+    f = S.fn_of("(4*asin(x/1.331) - 2*asin(x))*180/pi")
+    assert np.isclose(f(np.array([0.5]))[0], (4 * np.arcsin(0.5 / 1.331) - 2 * np.arcsin(0.5)) * 180 / np.pi)
+    assert np.isnan(S.fn_of("acos(x)")(np.array([2.0]))[0])
+    assert np.isclose(S.fn_of("arcsin(x) + atan(x)")(np.array([1.0]))[0], np.pi / 2 + np.pi / 4)
+
+
+def test_steps_written_with_the_docs_escaped_bars_still_split():
+    assert S.stages("P", r"1 \| 1 - x^2/2") == [("P", "1"), ("P", "1 - x^2/2")]
+    from konvey.stage.displays.tex.mobject import stages
+    node = leaf(r'<tex id="x" follow="g">e^x = 1 \|\| e^x = 1 + x</tex>')
+    assert stages(node) == ["e^x = 1", "e^x = 1 + x"]
+    assert stages(leaf(r'<tex id="x">\|v\| = 1</tex>')) == [r"\|v\| = 1"]   # a norm, not stages: no follow
+
+
+def test_a_planned_point_matches_when_written_with_pi():
+    from konvey.stage.marks import _same
+
+    assert _same("pi/3,0.5", "1.0472,0.5") and _same("pi/3, 0.5; 2pi,0", "1.0472,0.5; 6.2832,0")
+    assert not _same("pi/2,0.5", "1.0472,0.5")
+
+
+def test_the_planned_formula_matches_with_either_bar_spelling():
+    from types import SimpleNamespace
+    from konvey.stage.displays.tex import _check_drawn
+
+    b = parse_beats('<beats><beat vo="a"><tex id="t" follow="g">y = 1 || y = 1 + x</tex></beat></beats>')[0]
+    plan = SimpleNamespace(data={"tex": r"y = 1 \|\| y = 1 + x", "follow": "g"})
+    assert _check_drawn("b", plan, list(b.leaves().values())) == []
+
+
+@manim
+def test_a_long_array_wraps_into_rows_and_keeps_its_indices():
+    from konvey.stage.displays.array.mobject import ArrayBlock
+
+    bits = ",".join("1" if i % 3 == 0 else "0" for i in range(32))
+    a = ArrayBlock(leaf(f'<array id="a" values="{bits}"></array>', "a"))
+    rows = sorted({round(c.get_center()[1], 2) for c in a.cells})
+    assert len(rows) == 2 and a.cells[16].get_center()[1] < a.cells[15].get_center()[1]
+    b = ArrayBlock(leaf(f'<array id="a" values="{bits}" wrap="8"></array>', "a"))
+    assert len({round(c.get_center()[1], 2) for c in b.cells}) == 4
+    short = ArrayBlock(leaf('<array id="a" values="1,2,3"></array>', "a"))
+    assert len({round(c.get_center()[1], 2) for c in short.cells}) == 1
+
+
+def test_bits_that_flip_stay_in_place_and_a_sort_still_moves():
+    from konvey.stage.displays.array.mobject import _in_place
+
+    assert _in_place(list("0000000000"), list("0100000010")) == {j: j for j in range(10)}
+    assert _in_place(list("5312"), list("1235")) is None
+
+
+@manim
+def test_a_note_points_at_cells_of_an_array():
+    from konvey.stage.displays.array.mobject import ArrayBlock
+    from konvey.stage import marks
+
+    a = ArrayBlock(leaf('<array id="a" values="0,1,0,1,0"></array>', "a"))
+    assert np.allclose(a.point(3), a.cells[3].get_center())
+    assert marks.points("1; 3", lambda r: a, "<note>", "at") == [(1.0, 0.0), (3.0, 0.0)]
+    with pytest.raises(BeatError):
+        a.point(7)

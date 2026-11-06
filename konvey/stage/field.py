@@ -30,15 +30,19 @@ from manimlib import *  # noqa: F401,F403
 
 from .expr import parse_expr
 from .parse import BeatError, Node
-from . import actors3d
+from . import actors3d, diagram3d, layers3d
 from .solids import CLASSES, ORDER, SOLID_ATTRS, SOLID_TAGS
 
 CLASSES.update(actors3d.CLASSES)   # parametric surfaces, trajectories, slices (konvey.stage.actors3d)
 ORDER.update(actors3d.ORDER)
+CLASSES.update(layers3d.CLASSES)   # layer stacks and blocks of cells (konvey.stage.layers3d)
+ORDER.update(layers3d.ORDER)
+CLASSES.update(diagram3d.CLASSES)  # block diagrams (konvey.stage.diagram3d)
+ORDER.update(diagram3d.ORDER)
 from .theme import current
 
-FIELD_TAGS = {"axes3d", "surface", "point", "gradient", "contours"} | SOLID_TAGS | actors3d.TAGS
-FIELD_ATTRS = {**SOLID_ATTRS, **actors3d.ATTRS,
+FIELD_TAGS = {"axes3d", "surface", "point", "gradient", "contours"} | SOLID_TAGS | actors3d.TAGS | layers3d.TAGS | diagram3d.TAGS
+FIELD_ATTRS = {**SOLID_ATTRS, **actors3d.ATTRS, **layers3d.ATTRS, **diagram3d.ATTRS,
     "axes3d": {"id", "x", "y", "z", "grid", "ticks", "labels"},
     "surface": {"id", "fn", "x", "y", "color", "opacity", "zscale"},
     "point": {"id", "on", "at", "color", "descend", "steps"},

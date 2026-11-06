@@ -4,6 +4,8 @@ axes; the plan's ``plot`` kind. The renderer evaluates every expression itself (
 
 from __future__ import annotations
 
+import re
+
 import numpy as np
 
 from ...match import squash
@@ -58,6 +60,10 @@ def _check_object(d: dict) -> list[str]:
             a = b = None
         if a is None or not (x[0] <= a <= x[1] and x[0] <= b <= x[1]):
             problems.append(f'plot slide {sl!r}: use [from, to], both inside x (the points at x=from ride to x=to)')
+    gap = d.get("gap")
+    if gap is not None and not (isinstance(gap, str) and re.fullmatch(r"[^,@]+,[^,@]+@[xy]=[^:]+(:.*)?", gap.strip())):
+        problems.append(f'plot gap {gap!r}: use "curveA,curveB@x=VALUE: label" (labels from fns; '
+                        '"{gap}" in the label counts live)')
     labels = {squash(l) for k, e in fns for l, _ in S.stages(k, e) if l} if not problems else {squash(k) for k, _ in fns}
     for name, at in (d.get("points") or {}).items() if isinstance(d.get("points"), dict) else []:
         ok = isinstance(at, (list, tuple)) and len(at) == 2
@@ -108,6 +114,8 @@ def _check_drawn(where: str, obj, leaves) -> list[str]:
     if obj.data.get("slide") is not None and not any(n.attrs.get("slide", "").strip() for n in leaves if n.tag == "plot"):
         a, b = obj.data["slide"] if isinstance(obj.data["slide"], (list, tuple)) and len(obj.data["slide"]) == 2 else ("from", "to")
         return [f'{where}: <plot slide="{a} -> {b}"> (the planned slide: the points at x={a} ride to x={b})']
+    if obj.data.get("gap") and not any(n.attrs.get("gap", "").strip() for n in leaves if n.tag == "plot"):
+        return [f'{where}: <plot gap="{obj.data["gap"]}"> (the planned gap between two curves)']
     for k in NAMES:
         want = obj.data.get(k)
         if want and not any(squash(n.attrs.get(k, "")) == squash(want) for n in leaves if n.tag == "plot"):
@@ -142,6 +150,48 @@ def carry_axis_names(beats: list, strict: bool = True) -> None:
                     first[k] = n.attrs[k]
 
 
+def settle_repeats(beats: list, strict: bool = True) -> None:
+    """Steps (``fn="P: a | b"``) or a slide written again on the next beat already played: that
+    beat starts where they ended, written plain, and so does a ``<tex follow>`` repeating its
+    stages. Kept as written, the plot turns back into its first step and stays there while the
+    formula steps through again (a model often copies a stepped plot onto the beats after it)."""
+    seen: dict[str, tuple[str, str, str]] = {}   # plot id -> its fn, slide and formula as last written
+    for b in beats:
+        now = {}
+        tex = {n.attrs.get("follow", "").strip().lstrip("#"): n for n in b.leaves().values()
+               if n.tag == "tex" and n.attrs.get("follow", "").strip()}
+        for n in _plots(b):
+            fn, slide = n.attrs.get("fn", ""), n.attrs.get("slide", "")
+            f = tex.get(n.id)
+            formula = f.segments[0][0] if f is not None and f.segments else ""
+            now[n.id] = (fn, slide, formula)
+            old = seen.get(n.id)
+            if old is None or squash(old[0]) != squash(fn):
+                continue
+            try:
+                sp = S.parse(n.attrs)
+            except BeatError:
+                continue
+            last = max([len(c.steps) for c in sp.curves if c.steps] or [1]) - 1
+            repeat_slide = sp.slide is not None and squash(old[1]) == squash(slide)
+            if last == 0 and not repeat_slide:
+                continue
+            attrs = S.stage_attrs(n.attrs, last, sp.slide if repeat_slide else None)
+            if slide and not repeat_slide:   # a new slide on this beat still runs, from the last step
+                attrs["slide"] = slide
+            n.attrs = attrs
+            if f is not None and formula and squash(formula) == squash(old[2]):
+                parts = [t.strip() for t in formula.replace(r"\|\|", "||").split("||") if t.strip()]
+                f.segments = [(parts[-1], False)] if parts else f.segments
+                f.attrs.pop("follow", None)
+        seen = now
+
+
+def _prepare(beats: list, strict: bool = True) -> None:
+    carry_axis_names(beats, strict)
+    settle_repeats(beats, strict)
+
+
 def _same_plot(a, b) -> bool:
     try:
         ca, cb = S.curves_of(a.attrs.get("fn", "")), S.curves_of(b.attrs.get("fn", ""))
@@ -159,5 +209,5 @@ def _adopt(prev, first) -> None:
         olds[0].attrs["id"] = news[0].id
 
 
-DISPLAY = Display(tag="plot", order=55, steady=True, grow=True, enter="create", prepare=carry_axis_names,
+DISPLAY = Display(tag="plot", order=55, steady=True, grow=True, enter="create", prepare=_prepare,
                   adopt=_adopt, kind="plot", needs=("fns", "x"), check_object=_check_object, check_drawn=_check_drawn)

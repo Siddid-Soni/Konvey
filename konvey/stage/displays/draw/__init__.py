@@ -7,7 +7,7 @@ import re
 from ...match import squash
 from .. import Display
 
-SHAPES = frozenset({"rect", "circle", "polygon", "line", "label", "arc"})   # its children
+SHAPES = frozenset({"rect", "circle", "polygon", "line", "label", "arc", "icon"})   # its children
 
 
 def _check_object(d: dict) -> list[str]:
@@ -58,12 +58,12 @@ def _extent(n) -> tuple[float, float, float, float] | None:
             nums = [float(v) for v in _NUM.findall(a.get(key, ""))]
             xs += nums[0::2]
             ys += nums[1::2]
-        if c.tag in ("rect", "circle", "arc", "label"):
+        if c.tag in ("rect", "circle", "arc", "label", "icon"):
             try:
                 x, y = float(a["x"]), float(a["y"])
             except (KeyError, ValueError):
                 continue
-            rx = float(a.get("r") or 0) if c.tag in ("circle", "arc") else float(a.get("w") or 0) / 2
+            rx = float(a.get("r") or 0) if c.tag in ("circle", "arc") else float(a.get("w") or a.get("h") or 0) / 2
             ry = float(a.get("r") or 0) if c.tag in ("circle", "arc") else float(a.get("h") or 0) / 2
             xs += [x - rx, x + rx]
             ys += [y - ry, y + ry]

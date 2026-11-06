@@ -126,6 +126,9 @@ def _adopt_ids(prev: Beat, first: Beat) -> None:
                 return (n.tag, "hull", len(hull_points(n)))
             except BeatError:
                 return (n.tag, "hull", None)
+        if n.tag == "diagram":   # only the same figure: another tree is another picture
+            from .diagram3d import Diagram
+            return (n.tag, Diagram._sig(n))
         return (n.tag, n.attrs.get("shape", "box")) if n.tag == "solid" else (n.tag,)
 
     rename = {}
@@ -333,6 +336,7 @@ class StageScene(Scene):
             new_c = CameraState.from_beat(b.camera, bx, cstate, self.world.extent(new_w), shown=shown)
             if "zoom" not in b.camera:
                 self._true_fit(new_c, self.world.extent(new_w), b, bx)
+                new_c.zoom *= float(b.camera.get("push", 1.0))   # closer than the fit, same centre
                 if cstate is not None:   # measuring moved the camera; exits play from the old view
                     apply_camera(frame, cstate)
             # world actors that run during the line (a traced path, a sweeping plane) keep running
@@ -358,6 +362,11 @@ class StageScene(Scene):
                 if cube is not None and "tumble" in cube.attrs:
                     new_w.rot = tumble_rotations(int(cube.attrs.get("seed", 7)),
                                                  int(cube.attrs.get("samples", 5000)))[int(cube.attrs["tumble"]) - 1]
+                for i, actor in self.world.field.actors.items():   # where that scene's hold left them
+                    keys = getattr(actor, "LIVE", None)
+                    st = new_w.fields.get(i) if keys else None
+                    if st:
+                        st[keys[0]] = st[keys[1]]
                 self.world.apply(new_w)
                 apply_camera(frame, new_c)
                 self.add(*mobs.values())
@@ -408,9 +417,16 @@ class StageScene(Scene):
                     w0 = replace(w0, fields={k: (dict(v) if v else v) for k, v in w0.fields.items()})
                     for i, (key, v0, ve) in marks.items():
                         w0.fields[i][key] = ve
-                if exits:
+                # a clean cut (everything leaves, no 3D actor goes): the old picture fades while the
+                # new one comes in, instead of an empty screen between the two
+                clean = bool(exits) and not (same | morph) and w_exit is None and not running
+                if exits and not clean:
                     self.play(*exits)
                     self.remove(*(on_screen[i] for i in gone))
+                fades = []
+                for a in exits if clean else ():
+                    a.rate_func = squish_rate_func(a.rate_func, 0.0, 0.5)
+                    fades.append(a)
                 moves, enters = [], []
                 for i in same:
                     move = displays.hook(nodes[i].tag, "move") or Transform
@@ -427,7 +443,9 @@ class StageScene(Scene):
                 late = []
                 # the 2D camera moves in this beat: what is new appears once it has arrived, not at
                 # its final place while the page is still gliding there
-                travel = b.index > 0 and self.views[b.index] != self.views[b.index - 1]
+                # (only when something stays to glide: after a clean cut, waiting is a blank screen)
+                stays = bool(same | morph) or any(w0.show.get(k, 0) > 0 for k, v in new_w.show.items() if v > 0)
+                travel = b.index > 0 and self.views[b.index] != self.views[b.index - 1] and stays
                 for i, n in nodes.items():
                     if i not in same | morph:
                         if travel or any(_covers(m, mobs[i]) for m in movers):
@@ -445,8 +463,10 @@ class StageScene(Scene):
                     enters.insert(0, self._bars(bars, BAR_OPEN))
                 if letterbox and b.attrs.get("letterbox") == "close":
                     enters.append(self._bars(bars, FRAME_HEIGHT / 2))
-                self.play(world_anim, *moves, *([LaggedStart(*enters, lag_ratio=0.25)] if enters else []),
+                self.play(world_anim, *fades, *moves, *([LaggedStart(*enters, lag_ratio=0.25)] if enters else []),
                           run_time=T + 0.4)
+                if fades:
+                    self.remove(*(on_screen[i] for i in gone))
                 for i in morph:
                     # parts of the new element may have been added on their own by a fade
                     self.remove(on_screen[i], *mobs[i].get_family())
@@ -492,13 +512,18 @@ class StageScene(Scene):
         box = bx.get(key) if key else None
         cx, cy, w, h = (box.x, box.y, box.w, box.h) if box else (0, 0, FRAME_WIDTH, FRAME_HEIGHT)
         frame = self.camera.frame
-        for _ in range(3):
+        for _ in range(5):
             apply_camera(frame, c)
             q = np.array([project(frame, p)[:2] for p in pts])
             lo, hi = q.min(axis=0), q.max(axis=0)
-            # the target point stays on the box centre, so the farther side decides
-            need = max(2 * max(hi[0] - cx, cx - lo[0]) / (0.84 * w), 2 * max(hi[1] - cy, cy - lo[1]) / (0.84 * h))
-            if not np.isfinite(need) or need <= 0 or abs(need - 1) < 0.03:
+            # perspective makes the picture lopsided around the target point (the near end
+            # bigger): centre what is drawn on the box, then fill it
+            off = (lo + hi) / 2 - np.array([cx, cy])
+            need = max((hi[0] - lo[0]) / (0.84 * w), (hi[1] - lo[1]) / (0.84 * h))
+            if not np.isfinite(need) or need <= 0:
+                break
+            c.focus = (c.focus[0] - off[0], c.focus[1] - off[1])
+            if abs(need - 1) < 0.03 and np.abs(off).max() < 0.05:
                 break
             c.zoom = float(np.clip(c.zoom / need, 0.25, 4.0))
 
