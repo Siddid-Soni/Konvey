@@ -57,7 +57,8 @@ OPENCODE_DEFAULT_MODEL_IDS = {
     "opencode": "glm-5.3",
     "opencode-go": "muse-spark-1.3-contributor",  # Go-only; prompts may train Meta models
 }
-OPENCODE_USER_AGENT = "konvey/0.1.0"
+client_name = "cli"
+OPENCODE_USER_AGENT = "opencode/latest/2.0.32/cli"
 INCEPTION_BASE_URL = "https://api.inceptionlabs.ai/v1"
 INCEPTION_DEFAULT_MODEL_ID = "mercury-3"
 INCEPTION_EFFORT = "medium"
@@ -134,7 +135,7 @@ def resolve_model(model: Optional[ModelLike] = None) -> Union[str, object]:
         base_url = os.getenv("OPENCODE_BASE_URL", OPENCODE_BASE_URLS[provider])
         # OpenCode asks clients to name themselves and send one stable session
         # id per conversation (routing + prompt caching); each agent is one.
-        headers = {"User-Agent": OPENCODE_USER_AGENT, "x-opencode-session": str(uuid.uuid4())}
+        headers = {"x-opencode-client": "cli", "User-Agent": OPENCODE_USER_AGENT, "x-opencode-session": str(uuid.uuid4())}
         if model_id.startswith("gemini-"):
             # google-genai builds {base_url}/{api_version}/models/<id>:generateContent
             root, _, api_version = base_url.rstrip("/").rpartition("/")
@@ -158,10 +159,12 @@ def resolve_model(model: Optional[ModelLike] = None) -> Union[str, object]:
                 default_headers=headers,
                 # An explicit timeout: with the SDK's default one it refuses a non-streaming request
                 # whose max_tokens could run past 10 minutes (anything over ~21k).
-                client_params={"base_url": base_url.rstrip("/").removesuffix("/v1"), "timeout": 900.0},
+                client_params={"base_url": base_url.rstrip("/").removesuffix("/v1"), "timeout": 1500.0},
                 # agno's default (8192) cut off long beat documents and plans mid-reply; at effort
-                # "high" haiku's thinking counts here too and used all of 16384 on a narration plan
-                max_tokens=32768,
+                # "high" haiku's thinking counts here too and used all of 16384 on a narration plan.
+                # 32768 still cut off a 41-beat scene (30.5k tokens for the beats alone), and the
+                # "write it shorter" repair then costs accuracy; haiku 5.5 allows 128k.
+                max_tokens=64000,
                 # Repairs and the parallel scenes resend the same long system prompt: read it
                 # from the prompt cache instead of paying full input price each time.
                 cache_system_prompt=True,

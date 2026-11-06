@@ -159,13 +159,18 @@ def lines(out_dir: Path) -> list[dict]:
     return found
 
 
-def voice(out_dir: Path, log=print) -> dict:
-    """Voice every line (DramaBox, Paige) -> audio/<id>.wav and speech.json (text, say, sec)."""
+def voice(out_dir: Path, log=print, voicer=None, progress=None) -> dict:
+    """Voice every line (DramaBox, Paige) -> audio/<id>.wav and speech.json (text, say, sec).
+
+    ``voicer`` is a dramabox.Voicer that is already built, with the prompts' embeddings cached (a task queue's
+    pooled model); without one the models are loaded here and freed after. ``progress(done, total)`` is called
+    after each line."""
     from .dramabox import synthesize
 
     todo = lines(out_dir)
     log(f"      voicing {len(todo)} lines (DramaBox) ...")
-    secs = synthesize([{"id": x["id"], "text": x["say"]} for x in todo], REF, out_dir / "audio", log=log)
+    secs = synthesize([{"id": x["id"], "text": x["say"]} for x in todo], REF, out_dir / "audio", log=log,
+                      voicer=voicer, progress=progress)
     speech = {x["id"]: {"text": x["text"], "say": x["say"], "sec": secs[x["id"]]} for x in todo}
     (out_dir / "speech.json").write_text(json.dumps(speech, indent=1))
     log(f"      voiced {len(speech)} lines, {sum(secs.values()):.1f}s of speech")
