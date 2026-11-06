@@ -196,7 +196,7 @@ def test_resolve_model_opencode_gemini(monkeypatch):
     assert http["base_url"] == "https://opencode.ai/inference/go/"
     assert http["api_version"] == "v1"
     assert http["headers"]["x-opencode-session"]
-    assert http["headers"]["User-Agent"] == "konvey/0.1.0"
+    assert http["headers"]["User-Agent"] == "opencode/latest/2.0.32/cli"
 
 
 def test_resolve_model_opencode_go_default_is_muse_responses(monkeypatch):
