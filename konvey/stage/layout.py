@@ -8,8 +8,10 @@ All beats go on one page load, one stage per beat.
 from __future__ import annotations
 
 import html
+import os
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 from . import displays
 from .attach import attached
@@ -18,7 +20,40 @@ from .theme import current
 
 PX_PER_UNIT = 100
 STAGE_W, STAGE_H = 1422, 800
-CHROMIUM = "/usr/bin/chromium"
+
+
+def chromium_path() -> str | None:
+    """The configured chromium binary (KONVEY_CHROMIUM, else a distro one), or None when only
+    playwright's own download is there. Read per call, so setting the env later still counts."""
+    path = os.environ.get("KONVEY_CHROMIUM", "/usr/bin/chromium")
+    return path if Path(path).exists() else None
+
+
+_available: bool | None = None
+
+
+def chromium_available() -> bool:
+    """Whether the layout pass can run: a chromium binary, or the one playwright downloaded.
+
+    A browser, not the playwright package: ``--group layout`` alone leaves the download to a
+    separate ``playwright install chromium``, and launching without it fails after a long
+    pipeline. Probed once per process, so asking in every test costs one call.
+    """
+    global _available
+    if _available is None:
+        _available = chromium_path() is not None or _playwright_has_chromium()
+    return _available
+
+
+def _playwright_has_chromium() -> bool:
+    try:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as p:
+            return Path(p.chromium.executable_path).exists()
+    except Exception:  # noqa: BLE001 - not installed, not downloaded, or no node to drive it
+        return False
+
 
 BASE_CSS = """
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -394,7 +429,8 @@ def solve(beats: list[Beat], sizes, *, dump: str | None = None,
 
     natural = {k: dict(v) for k, v in sizes.items()}
     with sync_playwright() as p:
-        browser = p.chromium.launch(executable_path=CHROMIUM)
+        exe = chromium_path()
+        browser = p.chromium.launch(executable_path=exe) if exe else p.chromium.launch()
         page = browser.new_page(viewport={"width": STAGE_W, "height": STAGE_H})
         safe = SAFE_PX if current().letterbox else 0
         for k in range(SHRINK_PASSES):

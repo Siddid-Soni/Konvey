@@ -8,10 +8,11 @@ import pytest
 
 from konvey.schemas import Scene
 from konvey.stage.check import check_runtime, check_static
+from konvey.stage.layout import chromium_available
 from konvey.stage.parse import BeatError, parse_beats
 
 HAS_MANIM = importlib.util.find_spec("manimlib") is not None
-HAS_CHROMIUM = importlib.util.find_spec("playwright") is not None and Path("/usr/bin/chromium").exists()
+HAS_CHROMIUM = chromium_available()
 FIXTURES = Path(__file__).parent / "fixtures"
 manim = pytest.mark.skipif(not HAS_MANIM, reason="needs manimgl (uv --group render)")
 

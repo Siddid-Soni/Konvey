@@ -11,6 +11,7 @@ narration is voiced by **DramaBox** on the GPU. Human-facing overview: `README.m
 uv sync --group dev --group render --group layout          # Python 3.11 in .venv
 uv run --group layout playwright install chromium           # layout pass needs Chromium
 uv sync --group speech                                      # narration only (torch, ~8 GB GPU)
+uv sync --group web                                         # web app (FastAPI + Postgres client)
 cp .env.example .env                                        # then fill in keys
 ```
 
@@ -37,6 +38,11 @@ uv run --group render --group layout --group speech python scripts/story_render_
 
 # MCP server: a coding harness writes the beats, Konvey checks/previews/renders (docs/konvey-mcp.md)
 uv run --group mcp --group render --group layout konvey-mcp --help
+
+# web app: a prompt box and a live view of the whole run (web/README.md)
+docker compose up -d --wait postgres                    # the API keeps run state here
+uv run --group web --group render --group layout uvicorn web.server:app --port 8000
+cd web/frontend && npm install && npm run build        # once: the API serves dist/ at /
 ```
 
 Production runs go through **mayu** (a task-queue engine, Python 3.13, separate `.venv-gpu`):
@@ -62,6 +68,8 @@ Every run writes `out/<run>/` (gitignored): `agent1-output.json`, `agent2-output
 | `konvey/speech/` | narration: `dramabox.py` (TTS, staged for 8 GB), `narrate.py` (voice/wire/master), `spoken.py`, `checks.py`, `mirror.py` (park models in host RAM); `vendor/` is vendored DramaBox |
 | `konvey/mcp/` | MCP server, runs, jobs/worker, check, preview, render, docs |
 | `konvey/mayu_app.py`, `mayu_silent.py` | the pipeline as mayu workflows |
+| `web/` | the web app: FastAPI API, one-run worker, Postgres store, Vite/TS frontend (`web/README.md`) |
+| `docker-compose.yml` | the web app's Postgres (localhost only; `web/schema.sql` runs on first start) |
 | `prompts/` | all agent prompts (`README.md` maps them); `{{...}}` slots are filled from the displays |
 | `skills/konvey-video/` | Agent Skill for harnesses using the MCP server |
 | `scripts/` | eval and batch scripts; `story_eval_v7` imports v6→v5→…→v2, so keep the chain |

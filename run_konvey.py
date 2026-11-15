@@ -49,6 +49,16 @@ def parse_args(argv=None) -> argparse.Namespace:
 
 def main(argv=None) -> int:
     args = parse_args(argv)
+    # manimgl parses sys.argv when its packages load (konvey.stage imports them), so our flags
+    # must not be visible to it; restore them after, so main() can run twice in one process.
+    saved_argv, sys.argv = sys.argv, sys.argv[:1]
+    try:
+        return _run(args)
+    finally:
+        sys.argv = saved_argv
+
+
+def _run(args: argparse.Namespace) -> int:
     from konvey.stage.theme import get_theme
 
     try:

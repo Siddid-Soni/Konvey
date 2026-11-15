@@ -69,7 +69,9 @@ def _stack() -> dict:
     """What is installed; a missing piece should fail now, not after a long render."""
     has_manim = importlib.util.find_spec("manimlib") is not None
     has_playwright = importlib.util.find_spec("playwright") is not None
-    chromium = Path("/usr/bin/chromium").exists()   # konvey.stage.layout.CHROMIUM
+    from konvey.stage.layout import chromium_available
+
+    chromium = chromium_available()
     ffmpeg = bool(shutil.which("ffmpeg"))
     latex = bool(shutil.which("latex") or shutil.which("pdflatex") or shutil.which("tectonic"))
     missing = [name for name, ok in (("manimgl", has_manim), ("playwright", has_playwright),

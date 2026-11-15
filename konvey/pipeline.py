@@ -14,9 +14,12 @@ statically and, with manimgl + Chromium, laid out and played headless (A3).
 from __future__ import annotations
 
 import json
+import os
+import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Callable, Optional
 
 from . import agents as agent_factory
@@ -76,10 +79,28 @@ class PipelineConfig:
     # Filled during a run: (agent label, attempt, full rejection text);
     # written to <out_dir>/repair-log.txt.
     repair_log: list = field(default_factory=list)
+    # Optional progress sink (e.g. ``web.db.Store.event``): called with an event type and a
+    # few fields as the run advances. None: nothing is reported.
+    on_event: Optional[Callable[..., None]] = None
+
+
+def _emit(config: PipelineConfig, kind: str, **data: Any) -> None:
+    if config.on_event is not None:
+        try:
+            config.on_event(kind, **data)
+        except Exception:  # noqa: BLE001 - progress reporting is best-effort
+            pass
 
 
 def _agent_text(response: Any) -> Any:
     return response.content
+
+
+def _json_text(content: Any) -> str:
+    """A reply as JSON text: a parsed schema model, a dict, or plain text."""
+    if isinstance(content, str):
+        return content
+    return content.model_dump_json() if hasattr(content, "model_dump_json") else json.dumps(content)
 
 
 def _feedback_block(feedback: Optional[str], previous: Any = None) -> str:
@@ -96,6 +117,59 @@ def _feedback_block(feedback: Optional[str], previous: Any = None) -> str:
         "\n\nYOUR PREVIOUS ATTEMPT WAS REJECTED. Fix every problem below and output the full "
         f"corrected result:\n{feedback}"
     )
+
+
+def _streamed(agent: Any, prompt: str, on_delta: Optional[Callable[[str], None]] = None) -> Any:
+    """One agent turn, streamed (KONVEY_STREAM=0 turns it off).
+
+    A plan or a beat document can take longer than the gateway lets a quiet connection live:
+    non-streaming, nothing is sent until the whole reply is ready, and long calls die with a
+    connection error. An agent whose ``run`` takes no ``stream`` kwarg gets the plain path.
+    ``on_delta`` gets the new text at most about three times a second, which is what a live
+    view can render.
+    """
+    if os.environ.get("KONVEY_STREAM", "1") == "0":
+        return agent.run(prompt)  # plain call, priced by track() like the streamed one
+    try:
+        stream = agent.run(prompt, stream=True, yield_run_output=True)
+    except TypeError as e:  # an agent that cannot stream (tests, plain wrappers)
+        inner = e.__traceback__.tb_next if e.__traceback__ else None
+        # only a rejected call signature falls back. a signature TypeError has exactly one frame
+        # (the call itself, plus track()'s wrapper); a TypeError from inside a live call has
+        # more, and must not be re-run: that would pay for the prompt twice
+        if inner is not None and inner.tb_next is not None:
+            raise
+        return agent.run(prompt)
+    if not hasattr(stream, "__iter__"):  # streaming ignored: a plain response
+        return stream
+    from agno.run.agent import RunOutput  # only the streaming path needs it
+
+    parts: list[str] = []
+    pending: list[str] = []
+    final = None
+    last = time.monotonic()
+    for event in stream:
+        if isinstance(event, RunOutput):  # the whole run, last; its content is the reply
+            final = event
+            continue
+        chunk = getattr(event, "content", None)
+        if not chunk:
+            continue
+        parts.append(chunk)
+        if not isinstance(chunk, str) or on_delta is None:
+            continue
+        pending.append(chunk)
+        if time.monotonic() - last > 0.35:
+            on_delta("".join(pending))
+            pending.clear()
+            last = time.monotonic()
+    if pending:
+        on_delta("".join(pending))
+    # a schema agent's run output carries the parsed model (pydantic or dict), not its text;
+    # without one (the stream died early) the deltas are all there is
+    content = final.content if final is not None and final.content is not None else (
+        parts[-1] if parts and not isinstance(parts[-1], str) else "".join(parts))
+    return SimpleNamespace(content=_json_text(content))
 
 
 def run_knowledge(
@@ -130,15 +204,17 @@ def run_planning(
     previous: Optional[str] = None,
     computed: set[float] = frozenset(),
     request: str = "",
+    on_delta: Optional[Callable[[str], None]] = None,
 ) -> ScenePlan:
     # The request itself too: what it asks to be shown is the planner's to place.
     asked = f"REQUEST (the person's own words): {request}\n" if request.strip() else ""
-    resp = planning_agent.run(
+    resp = _streamed(planning_agent,
         asked
         + f"KNOWLEDGE_PACK: {knowledge.model_dump_json()}\n"
         f"Target duration: {duration_sec}\n"
         "Output the plan JSON: 3 scenes, every walkthrough step its own beat."
-        + _feedback_block(feedback, previous)
+        + _feedback_block(feedback, previous),
+        on_delta,
     )
     raw = _agent_text(resp)
     try:
@@ -192,6 +268,7 @@ def run_staging(
     previous_html: Optional[str] = None,
     examples: str = "",
     prelude: Optional[Callable[[], Optional[str]]] = None,
+    on_delta: Optional[Callable[[str], None]] = None,
 ) -> CodedScene:
     """Agent 3: SCENE_SPEC -> beat HTML, checked statically and
     (with manimgl + Chromium available) by laying out and playing it headless.
@@ -204,7 +281,7 @@ def run_staging(
         f"NOW THE REAL TASK.\nInput SCENE_SPEC: {scene.model_dump_json(exclude_none=True)}\nOutput only the <beats> document."
     if previous_html:
         prompt += f"\n\nYOUR PREVIOUS BEATS:\n{previous_html}"
-    resp = stage_agent.run(prompt + _feedback_block(feedback))
+    resp = _streamed(stage_agent, prompt + _feedback_block(feedback), on_delta)
     content = _agent_text(resp)
     try:
         html = extract_beats(content if isinstance(content, str) else str(content))
@@ -280,17 +357,23 @@ def _model_label(agent: Any) -> str:
     return str(model_id)
 
 
-def _with_repair(config: PipelineConfig, factory_name: str, label: str, attempt_fn):
+def _with_repair(config: PipelineConfig, factory_name: str, label: str, attempt_fn,
+                 agent: Any = None):
     """Call ``attempt_fn(agent, feedback, previous)``; on ValidationError feed the
     errors back, switching to CoT for the retries ("CoT on failure")."""
     mode_attr = {"knowledge": "mode_agent1", "planning": "mode_agent2", "coding": "mode_agent3"}[factory_name]
-    agent = _make_agent(factory_name, config)
+    agent = agent or _make_agent(factory_name, config)
     feedback: Optional[str] = None
     previous = None
     rounds = config.repair_rounds if config.cot_retry else 0
     for attempt in range(rounds + 1):
+        _emit(config, "agent.request", agent=label, attempt=attempt + 1,
+              of=rounds + 1, model=_model_label(agent))
         try:
-            return attempt_fn(agent, feedback, previous)
+            result = attempt_fn(agent, feedback, previous)
+            total = config.cost_log.summary()["total"]
+            _emit(config, "cost.updated", usd=total["usd"], requests=total["requests"])
+            return result
         except ValidationError as e:
             raw = getattr(e, "coded", None)
             if isinstance(raw, str):  # keep the rejected reply for debugging
@@ -305,6 +388,8 @@ def _with_repair(config: PipelineConfig, factory_name: str, label: str, attempt_
             lines = [ln.strip("- ") for ln in feedback.splitlines() if ln.strip()]
             first = (lines[1] if len(lines) > 1 and lines[0].endswith(":") else lines[0])[:160]
             _log(config, f"      {label} rejected (attempt {attempt + 1}): {first}")
+            _emit(config, "agent.rejected", agent=label, attempt=attempt + 1,
+                  problems=lines[:6], usd=config.cost_log.summary()["total"]["usd"])
             if getattr(config, mode_attr) != "cot" and attempt == 0:
                 agent = _make_agent(factory_name, config, mode="cot")
     raise AssertionError("unreachable")
@@ -334,13 +419,23 @@ def run_pipeline(config: PipelineConfig) -> PipelineResult:
     """Run USER_PROMPT -> KNOWLEDGE_PACK -> plan -> 3x beat HTML."""
     _use_theme(config)
     use_probe = config.probe and probe_available() and _stage_check_available()
+    # the agent that does the work is the one named in the events: make it once
+    knowledge_agent = _make_agent("knowledge", config)
+    _emit(config, "run.start", prompt=config.user_prompt, duration=config.duration_sec,
+          probe=use_probe, theme=config.theme, model=_model_label(knowledge_agent))
     _log(config, f"[1/4] Agent 1 Knowledge Discovery running "
                  f"(grounded={config.grounded}, probe={use_probe}) ...")
-    _log(config, f"      model: {_model_label(_make_agent('knowledge', config))}")
+    _log(config, f"      model: {_model_label(knowledge_agent)}")
     knowledge = _with_repair(config, "knowledge", "Agent 1", lambda agent, fb, prev: run_knowledge(
-        config.user_prompt, agent, require_grounding=config.grounded, feedback=fb, previous=prev))
+        config.user_prompt, agent, require_grounding=config.grounded, feedback=fb, previous=prev),
+        agent=knowledge_agent)
     _log(config, f"[1/4] Agent 1 done: topic={knowledge.topic!r} "
                  f"worked_examples={len(knowledge.worked_examples)}")
+    _emit(config, "agent.done", agent="Agent 1", topic=knowledge.topic,
+          concepts=len(knowledge.key_concepts), examples=len(knowledge.worked_examples))
+    for call in config.compute_log.calls:
+        _emit(config, "tool.call", agent="Agent 1", name=call["tool"],
+              input=call["input"][:120], result=str(call["output"])[:120])
     # saved now, not with the rest: a plan that fails can then be diagnosed or resumed from it
     out_dir = Path(config.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -356,9 +451,14 @@ def run_pipeline(config: PipelineConfig) -> PipelineResult:
         knowledge=knowledge, planning_agent=agent,
         duration_sec=config.duration_sec, duration_tolerance=config.duration_tolerance,
         grounded=config.grounded, example_vo_lines=example_lines, feedback=fb, previous=prev,
-        computed=computed, request=config.user_prompt))
+        computed=computed, request=config.user_prompt,
+        on_delta=lambda chunk: _emit(config, "agent.delta", agent="Agent 2", text=chunk)))
     total = sum(s.duration_sec for s in plan.scenes)
     _log(config, f"[2/4] Agent 2 done: title={plan.title!r} scenes={[s.id for s in plan.scenes]} total={total}s")
+    _emit(config, "plan.ready", title=plan.title, total=total,
+          scenes=[{"id": s.id, "duration": s.duration_sec, "beats": len(s.beats)}
+                  for s in plan.scenes],
+          usd=config.cost_log.summary()["total"]["usd"])
 
     _log(config, "[3/4] Agent 3 Stage beats running (S1, S2, S3 in parallel) ...")
     scenes = {s.id: s for s in plan.scenes}
@@ -376,18 +476,26 @@ def run_pipeline(config: PipelineConfig) -> PipelineResult:
             picked = select(scenes[scene_id], topic_text, log=lambda m: _log(config, m))
             _log(config, f"      {scene_id} examples: {[e.name for e in picked] or 'none'}")
             block = examples_block(picked)
+            _emit(config, "scene.state", scene=scene_id, state="writing",
+                  examples=[e.name for e in picked])
             coded = _with_repair(config, "coding", scene_id, lambda agent, fb, prev: run_staging(
                 scenes[scene_id], agent, check_dir=probe_dir,
                 feedback=fb, previous_html=prev.code if prev else None, examples=block,
-                prelude=_prelude(scene_id)))
+                prelude=_prelude(scene_id),
+                on_delta=lambda chunk, sid=scene_id: _emit(
+                    config, "agent.delta", agent=sid, text=chunk)))
         except CodeRejected as e:
             # Keep the last attempt so the other scenes and the plan survive;
             # its problems are written next to it for a manual look.
             rejected[scene_id] = e.problems
             _log(config, f"      {scene_id} STILL REJECTED after {config.repair_rounds} repairs "
                          f"({len(e.problems)} problems); keeping last attempt")
+            _emit(config, "scene.state", scene=scene_id, state="rejected",
+                  problems=e.problems[:4])
             return e.coded
         _log(config, f"      {scene_id} done ({len(coded.code.splitlines())} lines)")
+        _emit(config, "scene.state", scene=scene_id, state="done",
+              beats=coded.code.count("<beat"), chars=len(coded.code))
         return coded
 
     # Scenes are written and statically checked in parallel; each runtime check waits for
@@ -429,6 +537,8 @@ def run_pipeline(config: PipelineConfig) -> PipelineResult:
     total = config.cost_log.summary()["total"]
     _log(config, "[4/4] Done." + (f" Rejected scenes: {sorted(rejected)}" if rejected else "")
          + f" Cost {fmt_usd(total['usd'])} for {total['requests']} model requests (cost.json).")
+    _emit(config, "run.scenes_done", rejected=sorted(rejected), usd=total["usd"],
+          requests=total["requests"])
     return PipelineResult(
         topic=knowledge.topic, knowledge=knowledge, plan=plan, scenes=coded, out_dir=str(out_dir),
         rejected=rejected,

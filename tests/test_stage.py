@@ -8,12 +8,14 @@ import pytest
 
 from konvey.pipeline import extract_beats
 from konvey.schemas import Scene
+from konvey.stage import layout
 from konvey.stage.check import check_runtime, check_static
+from konvey.stage.layout import chromium_available, chromium_path
 from konvey.stage.parse import BeatError, parse_beats
 
 REPO = Path(__file__).resolve().parent.parent
 HAS_MANIM = importlib.util.find_spec("manimlib") is not None
-HAS_CHROMIUM = importlib.util.find_spec("playwright") is not None and Path("/usr/bin/chromium").exists()
+HAS_CHROMIUM = chromium_available()
 
 SCENE = Scene.model_validate({
     "id": "S2", "purpose": "build", "duration_sec": 20,
@@ -79,7 +81,24 @@ def test_plot_fn_is_parsed_not_evaluated():
         parse_fn('__import__("os").system("true")')
 
 
-@pytest.mark.skipif(not HAS_CHROMIUM, reason="needs playwright + /usr/bin/chromium")
+def test_the_chromium_binary_comes_from_the_env_first(monkeypatch, tmp_path):
+    fake = tmp_path / "chrome"
+    fake.write_text("")
+    monkeypatch.setenv("KONVEY_CHROMIUM", str(fake))
+    assert chromium_path() == str(fake)
+    assert chromium_available()
+
+
+def test_a_configured_binary_that_is_not_there_falls_back_to_playwright(monkeypatch):
+    """The package alone is not a browser: `playwright install chromium` is a separate step."""
+    monkeypatch.setenv("KONVEY_CHROMIUM", "/nonexistent/chromium")
+    assert chromium_path() is None
+    monkeypatch.setattr(layout, "_available", None)
+    monkeypatch.setattr(layout, "_playwright_has_chromium", lambda: False)
+    assert not chromium_available()          # what konvey.mcp.server._stack reports as missing
+
+
+@pytest.mark.skipif(not HAS_CHROMIUM, reason="needs a chromium binary (KONVEY_CHROMIUM / playwright install)")
 def test_layout_reports_overflow_per_beat_and_id():
     """tex shrinks to at most 70% (6u -> 4.2u), so a 4u card still overflows, by 20px."""
     from konvey.stage import layout
@@ -90,7 +109,7 @@ def test_layout_reports_overflow_per_beat_and_id():
         layout.solve(beats, {0: {"f": (6.0, 1.0), "cap": (1.0, 0.3)}})
 
 
-@pytest.mark.skipif(not HAS_CHROMIUM, reason="needs playwright + /usr/bin/chromium")
+@pytest.mark.skipif(not HAS_CHROMIUM, reason="needs a chromium binary (KONVEY_CHROMIUM / playwright install)")
 def test_layout_shrinks_visual_blocks_that_slightly_overflow():
     from konvey.stage import layout
 
@@ -103,7 +122,7 @@ def test_layout_shrinks_visual_blocks_that_slightly_overflow():
     assert boxes[0]["t"].w == pytest.approx(1.5)     # text keeps its size
 
 
-@pytest.mark.skipif(not HAS_CHROMIUM, reason="needs playwright + /usr/bin/chromium")
+@pytest.mark.skipif(not HAS_CHROMIUM, reason="needs a chromium binary (KONVEY_CHROMIUM / playwright install)")
 def test_layout_never_shrinks_text():
     from konvey.stage import layout
 

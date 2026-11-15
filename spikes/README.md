@@ -9,3 +9,4 @@ Experiments kept for reference; nothing in `konvey/` imports from here, and none
 | `attention-display/`, `relation-display/` | retired topic-specific displays |
 | `before-2026-10-17-*/`, `keep-maps-2026-10-17/` | snapshots of pipeline variants before the 2026-10-17 rework |
 | `STORYBOARD.md` | an early storyboard draft |
+| `web_import_files.py` | one-off: import runs the first web prototype wrote as `meta.json` + `events.jsonl` (`python -m spikes.web_import_files --dry-run`) |

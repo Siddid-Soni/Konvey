@@ -16,3 +16,7 @@ assets/voices/*
 
 # local working notes
 docs/superpowers/handoff-*.md
+
+# web app build output and deps
+web/frontend/node_modules/
+web/frontend/dist/
