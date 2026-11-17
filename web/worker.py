@@ -29,7 +29,7 @@ def main(argv: list[str] | None = None) -> int:
     from konvey.pipeline import PipelineConfig, run_pipeline
 
     started = time.time()
-    store: db.Store | None = None          # a connect failure here must still end the run
+    store: db.Store | None = None
     signal.signal(signal.SIGTERM, lambda *_: _cancelled(run_id, store, started))
     try:
         store = db.Store(run_id)
@@ -57,7 +57,7 @@ def main(argv: list[str] | None = None) -> int:
         frames = traceback.extract_tb(e.__traceback__)
         where = f"{frames[-1].filename}:{frames[-1].lineno}" if frames else ""
         error = f"{type(e).__name__}: {e}"
-        if store:      # a store that failed to connect must not hide the row update below
+        if store:
             store.event("run.failed", error=error, where=where)
         db.update_run(run_id, status="failed", error=error,
                       finished_at=datetime.now(timezone.utc))
@@ -69,7 +69,6 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _cancelled(run_id: str, store: db.Store | None, started: float) -> None:
-    """SIGTERM: record the cancel, mark the row, and leave without waiting for the threads."""
     try:
         sink = store or db.Store(run_id)
         sink.event("run.cancelled", seconds=round(time.time() - started, 1))
@@ -77,7 +76,7 @@ def _cancelled(run_id: str, store: db.Store | None, started: float) -> None:
         traceback.print_exc()
     try:
         db.update_run(run_id, status="cancelled", finished_at=datetime.now(timezone.utc))
-        _trim(run_id)      # the deltas of a cancelled run are not worth replaying either
+        _trim(run_id)
     finally:
         os._exit(0)
 
@@ -104,7 +103,7 @@ def _render(run_dir: Path, store: db.Store) -> None:
     store.event("render.start", scenes=ids)
     try:
         jobs = max(1, min(3, int(os.environ.get("KONVEY_RENDER_JOBS", "2"))))
-    except ValueError:  # a bad env var must not fail an otherwise good run
+    except ValueError:
         print("KONVEY_RENDER_JOBS is not a number, rendering 2 at a time", flush=True)
         jobs = 2
 

@@ -18,7 +18,6 @@ def row(status="running", video=None):
 
 @pytest.fixture(autouse=True)
 def no_database(monkeypatch, tmp_path):
-    """A db call a test did not fake fails at once, instead of waiting on a connect timeout."""
     def forbidden(name):
         def call(*a, **k):
             raise AssertionError(f"the test did not fake db.{name}")
@@ -46,7 +45,7 @@ def test_an_unknown_or_malformed_run_id_is_404(monkeypatch):
     assert seen == ["no-such-run"]
     for bad in ("UPPER", "under_score", "dot.dot"):
         assert client().get(f"/api/runs/{bad}").status_code == 404
-    assert seen == ["no-such-run"]          # characters outside [a-z0-9-] never reach the db
+    assert seen == ["no-such-run"]
 
 
 def test_start_run_needs_a_prompt(monkeypatch):
@@ -98,7 +97,7 @@ def test_start_run_returns_the_new_run(monkeypatch, tmp_path):
     assert r.status_code == 200
     body = r.json()
     assert body["id"] in runs and body["video"] is None and "video" in body
-    assert (server.RUNS / body["id"] / "worker.log").is_file()   # the worker's output has a home
+    assert (server.RUNS / body["id"] / "worker.log").is_file()
     assert len(started) == 1
 
 
@@ -109,7 +108,7 @@ def test_start_run_gives_up_after_five_taken_ids(monkeypatch):
                         lambda run_id, prompt, model="": attempts.append(run_id) or False)
     r = client().post("/api/runs", json={"prompt": "How does a queue drain?"})
     assert r.status_code == 503
-    assert len(attempts) == 5                 # a bounded loop, not a spin
+    assert len(attempts) == 5
 
 
 def test_start_run_marks_the_row_failed_when_the_worker_cannot_start(monkeypatch, tmp_path):
@@ -125,7 +124,7 @@ def test_start_run_marks_the_row_failed_when_the_worker_cannot_start(monkeypatch
     monkeypatch.setattr(server.subprocess, "Popen", no_worker)
     r = client().post("/api/runs", json={"prompt": "How does a queue drain?"})
     assert r.status_code == 503
-    assert updates and updates[-1][1]["status"] == "failed"   # never left saying "running"
+    assert updates and updates[-1][1]["status"] == "failed"
 
 
 def patch_cancel(monkeypatch, status, pid):
@@ -166,7 +165,7 @@ def test_cancel_of_a_worker_that_already_died_does_not_leave_it_running(monkeypa
         killpg=lambda *a: (_ for _ in ()).throw(ProcessLookupError())))
     monkeypatch.setattr(server.db, "update_run", lambda run_id, **f: updates.append(f))
     assert client().post(f"/api/runs/{RUN}/cancel").status_code == 409
-    assert updates and updates[-1]["status"] == "failed"   # the row is what was stale
+    assert updates and updates[-1]["status"] == "failed"
 
 
 def test_run_files_are_confined_to_the_run_directory(monkeypatch):
@@ -202,7 +201,7 @@ def test_the_event_stream_ends_when_the_run_was_cancelled(monkeypatch):
         closed = False
 
         def events_after(self, run_id, after, limit=1000):
-            return []                          # nothing new: the fresh status ends the stream
+            return []
 
         def status_of(self, run_id):
             return "cancelled"
@@ -235,4 +234,4 @@ def test_an_unreadable_last_event_id_replays_from_the_start(monkeypatch):
 
     monkeypatch.setattr(server.db, "Reader", FakeReader)
     r = client().get(f"/api/runs/{RUN}/events?after=0", headers={"last-event-id": "abc"})
-    assert r.status_code == 200 and asked == [0]   # not a 500
+    assert r.status_code == 200 and asked == [0]

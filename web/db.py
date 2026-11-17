@@ -88,8 +88,6 @@ def _jsonable(row: dict) -> dict:
 
 
 class Reader:
-    """One SSE stream's polls: one connection, reused and replaced when it dies."""
-
     def __init__(self) -> None:
         self.conn = None
         self.lock = threading.Lock()
@@ -101,7 +99,7 @@ class Reader:
             except Exception:  # noqa: BLE001 - typically a socket that died since the last poll
                 _discard(self.conn)
                 self.conn = None
-                return fn(self._conn())  # one fresh connection; a second failure is real
+                return fn(self._conn())
 
     def _conn(self):
         if self.conn is None:
@@ -121,7 +119,6 @@ class Reader:
 
 
 def create_run(run_id: str, prompt: str, model: str = "", pid: int | None = None) -> bool:
-    """True when this call inserted the row, False when the id was already taken."""
     with connect() as conn:
         row = conn.execute(
             "insert into runs (id, prompt, model, pid) values (%s, %s, %s, %s)"
@@ -145,14 +142,10 @@ def trim_events(run_id: str) -> None:
 
 
 class Store:
-    """One run's event sink. Called from the pipeline's thread pool, so inserts are serialised;
-    a failed insert is a stderr line, never a dead run."""
-
     def __init__(self, run_id: str) -> None:
         self.run_id = run_id
         self.conn = None
-        # reentrant: the SIGTERM handler runs in the main thread, which may itself be inside
-        # ``event`` (a cancel that lands mid-insert must not wait forever on its own lock)
+        # reentrant: the SIGTERM handler runs in the main thread, which may be inside event()
         self.lock = threading.RLock()
         self.seq = 0
         self.t0 = time.monotonic()
@@ -175,7 +168,7 @@ class Store:
 
     def _warn(self, err: Exception) -> None:
         now = time.monotonic()
-        if now - self.warned > 10:      # a dead database would otherwise print every delta
+        if now - self.warned > 10:
             self.warned = now
             print(f"[web.db] event store unavailable: {type(err).__name__}: {err}"
                   f" (run {self.run_id})", file=sys.stderr, flush=True)

@@ -49,7 +49,6 @@ def parse_args(argv=None) -> argparse.Namespace:
 
 def main(argv=None) -> int:
     args = parse_args(argv)
-    # manimgl parses sys.argv; keep our flags out of it, and restore them so main() can run twice
     saved_argv, sys.argv = sys.argv, sys.argv[:1]
     try:
         return _run(args)

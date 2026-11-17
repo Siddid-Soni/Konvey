@@ -79,7 +79,6 @@ class PipelineConfig:
     # Filled during a run: (agent label, attempt, full rejection text);
     # written to <out_dir>/repair-log.txt.
     repair_log: list = field(default_factory=list)
-    # called as on_event(type, **fields) as the run advances
     on_event: Optional[Callable[..., None]] = None
 
 
@@ -96,7 +95,6 @@ def _agent_text(response: Any) -> Any:
 
 
 def _json_text(content: Any) -> str:
-    """A reply as JSON text: a parsed schema model, a dict, or plain text."""
     if isinstance(content, str):
         return content
     return content.model_dump_json() if hasattr(content, "model_dump_json") else json.dumps(content)
@@ -119,30 +117,26 @@ def _feedback_block(feedback: Optional[str], previous: Any = None) -> str:
 
 
 def _streamed(agent: Any, prompt: str, on_delta: Optional[Callable[[str], None]] = None) -> Any:
-    """One agent turn, streamed (KONVEY_STREAM=0 turns it off): a long reply can outlive a quiet
-    connection. on_delta gets the new text about three times a second.
-    """
     if os.environ.get("KONVEY_STREAM", "1") == "0":
         return agent.run(prompt)
     try:
         stream = agent.run(prompt, stream=True, yield_run_output=True)
-    except TypeError as e:  # an agent that cannot stream (tests, plain wrappers)
+    except TypeError as e:
         inner = e.__traceback__.tb_next if e.__traceback__ else None
-        # only a rejected signature falls back (one frame, two with track()'s wrapper); a
-        # TypeError from inside a live call must not be re-run: it would pay for the prompt twice
+        # a TypeError from inside a live call must not be re-run: it would pay for the prompt twice
         if inner is not None and inner.tb_next is not None:
             raise
         return agent.run(prompt)
     if not hasattr(stream, "__iter__"):
         return stream
-    from agno.run.agent import RunOutput  # only the streaming path needs it
+    from agno.run.agent import RunOutput
 
     parts: list[str] = []
     pending: list[str] = []
     final = None
     last = time.monotonic()
     for event in stream:
-        if isinstance(event, RunOutput):  # the whole run, last; its content is the reply
+        if isinstance(event, RunOutput):
             final = event
             continue
         chunk = getattr(event, "content", None)
@@ -158,8 +152,7 @@ def _streamed(agent: Any, prompt: str, on_delta: Optional[Callable[[str], None]]
             last = time.monotonic()
     if pending:
         on_delta("".join(pending))
-    # a schema agent's run output holds the parsed model, not its text; without one (the stream
-    # died early) the deltas are all there is
+    # a schema agent's run output holds the parsed model, not text
     content = final.content if final is not None and final.content is not None else (
         parts[-1] if parts and not isinstance(parts[-1], str) else "".join(parts))
     return SimpleNamespace(content=_json_text(content))
@@ -412,7 +405,6 @@ def run_pipeline(config: PipelineConfig) -> PipelineResult:
     """Run USER_PROMPT -> KNOWLEDGE_PACK -> plan -> 3x beat HTML."""
     _use_theme(config)
     use_probe = config.probe and probe_available() and _stage_check_available()
-    # the agent that does the work is the one named in the events: make it once
     knowledge_agent = _make_agent("knowledge", config)
     _emit(config, "run.start", prompt=config.user_prompt, duration=config.duration_sec,
           probe=use_probe, theme=config.theme, model=_model_label(knowledge_agent))

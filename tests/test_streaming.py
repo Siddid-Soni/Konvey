@@ -57,7 +57,7 @@ def test_a_streamed_call_is_priced_once(monkeypatch, tmp_path):
     agent = track(StreamingAgent(), log, "A2")
 
     assert _streamed(agent, "go").content == "Alpha beta"
-    assert len(log.requests) == 1                     # the terminal RunOutput, priced once
+    assert len(log.requests) == 1
     assert log.requests[0]["agent"] == "A2"
     assert log.requests[0]["usd"] is not None and log.requests[0]["usd"] > 0
     assert json.loads((tmp_path / "cost.json").read_text())["total"]["usd"] > 0
@@ -79,8 +79,8 @@ def test_plain_and_stream_disabled_calls_are_priced(monkeypatch, tmp_path):
     log.out_dir = tmp_path
     agent = track(Plain(), log, "Agent 1")
     monkeypatch.setenv("KONVEY_STREAM", "0")
-    _streamed(agent, "go")                            # disabled: one plain call, still priced
-    agent.run("again")                                # a repair is a second request
+    _streamed(agent, "go")
+    agent.run("again")
     assert agent.prompts == ["go", "again"]
     assert [r["agent"] for r in log.requests] == ["Agent 1", "Agent 1"]
     assert all(r["usd"] is not None for r in log.requests)
@@ -96,7 +96,7 @@ def test_text_deltas_are_concatenated_and_not_duplicated():
 
     seen = []
     assert _streamed(TextAgent("Alpha beta"), "go", seen.append).content == "Alpha beta"
-    assert "".join(seen) == "Alpha beta"              # the live view saw the text
+    assert "".join(seen) == "Alpha beta"
     assert _streamed(TextAgent(None), "go").content == "Alpha beta"
 
 
@@ -125,7 +125,7 @@ def test_an_agent_without_a_stream_kwarg_gets_the_plain_path():
 
     agent = NoStream()
     assert _streamed(agent, "go").content == "ok"
-    assert agent.calls == ["go"]                      # the rejected signature, then one plain call
+    assert agent.calls == ["go"]
 
 
 def test_a_type_error_from_inside_a_streamed_call_is_not_retried():
@@ -135,7 +135,7 @@ def test_a_type_error_from_inside_a_streamed_call_is_not_retried():
 
         def run(self, prompt, **kw):
             if kw:
-                self._inner()                         # dies mid-call, after the prompt was sent
+                self._inner()
             self.plain += 1
             return SimpleNamespace(content="ok")
 
@@ -145,7 +145,7 @@ def test_a_type_error_from_inside_a_streamed_call_is_not_retried():
     agent = Exploding()
     with pytest.raises(TypeError):
         _streamed(agent, "go")
-    assert agent.plain == 0                           # never paid for the prompt twice
+    assert agent.plain == 0
 
 
 def test_emit_swallows_a_sink_that_raises():
@@ -157,7 +157,7 @@ def test_emit_swallows_a_sink_that_raises():
 
     _emit(PipelineConfig(user_prompt="x", on_event=sink), "run.start", prompt="x", model=MODEL)
     assert seen[0][0] == "run.start" and seen[0][1]["model"] == MODEL
-    _emit(PipelineConfig(user_prompt="x"), "run.start")   # no sink at all is fine too
+    _emit(PipelineConfig(user_prompt="x"), "run.start")
 
 
 def test_run_pipeline_emits_the_documented_events(monkeypatch, tmp_path):

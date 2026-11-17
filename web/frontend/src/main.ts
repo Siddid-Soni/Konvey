@@ -57,13 +57,11 @@ const pretty = (s: string) => {
   const n = Number(s);
   return s.trim() !== "" && Number.isFinite(n) ? n.toLocaleString(undefined, { maximumSignificantDigits: 8 }) : s;
 };
-// Why a run stopped, in words a viewer can act on. The raw error is kept for Checks.
 const stopReason = (err: string) => {
   if (/ValidationError/.test(err)) return "a check rejected the plan after every try";
   if (/timed? ?out/i.test(err)) return "the model did not answer in time";
   return clip(err.replace(/^\w+(Error|Exception):\s*/, ""), 90);
 };
-// a delta redraws ~3x/s, so the headline is only re-matched when the text grew
 const headlineOf = (id: string, html: string) => {
   const hit = S.heads.get(id);
   if (hit?.len === html.length) return hit.head;
@@ -98,8 +96,6 @@ const layout: Layout = loadLayout();
 function saveLayout() {
   try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout)); } catch { /* private mode: layout just resets */ }
 }
-// The width the user chose is kept as it is; what is shown never takes the page's room
-// (the page keeps at least 280px), so a width saved on a wide window fits a narrow one.
 const shownDetails = () => clamp(layout.details, 260, Math.max(260, innerWidth - layout.side - 280));
 function applyLayout() {
   const app = $("app");
@@ -120,16 +116,16 @@ function freshState() {
     scenes: Object.fromEntries(SCENE_IDS.map((id) => [id, blankScene(id)])) as Record<string, Scene>,
     items: [] as Item[],
     texts: {} as Record<string, string>,
-    events: [] as Ev[],               // every event but the text stream, for the full log
+    events: [] as Ev[],
     logOpen: false,
     logView: "events" as "events" | "worker",
     logQuery: "",
     logWarnOnly: false,
-    logOpenSeqs: new Set<number>(),   // which event rows the reader has expanded
+    logOpenSeqs: new Set<number>(),
     workerText: "",
-    tries: {} as Record<string, number>,   // attempts allowed per agent, from agent.request
-    heads: new Map<string, { len: number; head: string }>(),   // a scene's headline, per run
-    pref: {} as Record<string, boolean>,   // a scene's stream: the user's choice, else open while writing
+    tries: {} as Record<string, number>,
+    heads: new Map<string, { len: number; head: string }>(),
+    pref: {} as Record<string, boolean>,
     usd: null as number | null,
     planTotal: 0,
     seconds: null as number | null,
@@ -316,8 +312,6 @@ function apply(e: Ev) {
       log(t, `Stopped · ${stopReason(S.error)}`, "bad", S.error);
       break;
 
-    // the user's own stop: the stages close, the head reads "Stopped by you", and the
-    // server ends the stream right after this event
     case "run.cancelled":
       closeAll(t, "failed");
       S.run!.status = "cancelled";
@@ -374,7 +368,6 @@ function drawLogs() {
     b.classList.toggle("on", on);
     b.setAttribute("aria-selected", String(on));
   });
-  // the drawer is redrawn ~3x/s while text streams in; only rebuild the rows when they changed
   const sig = [S.logView, S.logQuery, S.logWarnOnly, S.events.length, S.workerText.length,
                S.logOpenSeqs.size].join("|");
   if (sig === logsSig) return;
@@ -509,7 +502,6 @@ function sceneState(sc: Scene): string {
 
 function drawScenes() {
   const box = $("scenes");
-  // keep each open stream where the reader left it; follow the text when they were at the bottom
   const keep = new Map<string, { top: number; bottom: boolean }>();
   box.querySelectorAll<HTMLElement>("[data-stream]").forEach((el) =>
     keep.set(el.dataset.stream!, { top: el.scrollTop, bottom: el.scrollHeight - el.scrollTop - el.clientHeight < 24 }));
@@ -607,7 +599,6 @@ function summaryHtml(): string {
 
 let runsSig = "";
 function drawRuns() {
-  // rebuilt on every frame while a run streams; the minute bucket keeps the "when" labels fresh
   const sig = `${S.run?.id ?? ""}|${Math.floor(Date.now() / 60000)}|`
     + runList.map((r) => `${r.id},${r.status},${r.title ?? ""}`).join("|");
   if (sig === runsSig) return;
@@ -672,7 +663,7 @@ async function route() {
   if (!id) { newRun(); return; }
   if (S.run?.id === id) return;
   const r = await fetch(`/api/runs/${id}`);
-  if (location.hash !== `#/runs/${id}`) return;   // a later navigation won
+  if (location.hash !== `#/runs/${id}`) return;
   if (!r.ok) { newRun(); return; }
   attach(await r.json());
 }
@@ -719,7 +710,6 @@ async function stop() {
     const r = await fetch(`/api/runs/${S.run.id}/cancel`, { method: "POST" });
     if (!r.ok) throw new Error(await r.text());
   } catch (e) {
-    // the stream stays as it is: the run may still be going
     log(elapsed(), `Could not stop · ${clip(e, 120)}`, "bad");
     schedule();
   }
@@ -854,7 +844,6 @@ function boot() {
   }, true);
   document.addEventListener("keydown", (ev) => {
     if (ev.key === "Escape" && S.logOpen) { S.logOpen = false; draw(); return; }
-    // keyboard: the same handles, 16px a step
     const el = (ev.target as HTMLElement).closest<HTMLElement>("[data-resize]");
     if (!el || (ev.key !== "ArrowLeft" && ev.key !== "ArrowRight")) return;
     ev.preventDefault();

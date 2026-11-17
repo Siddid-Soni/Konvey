@@ -23,7 +23,6 @@ STAGE_W, STAGE_H = 1422, 800
 
 
 def chromium_path() -> str | None:
-    """KONVEY_CHROMIUM, else a distro binary; None when only playwright's download is there."""
     path = os.environ.get("KONVEY_CHROMIUM", "/usr/bin/chromium")
     return path if Path(path).exists() else None
 
@@ -32,7 +31,7 @@ _available: bool | None = None
 
 
 def chromium_available() -> bool:
-    """A browser, not just the playwright package: `playwright install` is a separate step."""
+    """`--group layout` installs the package, not the browser: only playwright install does."""
     global _available
     if _available is None:
         _available = chromium_path() is not None or _playwright_has_chromium()

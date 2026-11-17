@@ -28,7 +28,7 @@ STREAM_IDLE = 3600.0
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    with db.connect() as conn:      # the compose initdb does this too; this covers a reuse
+    with db.connect() as conn:
         db.ensure_schema(conn)
     yield
 
@@ -129,14 +129,14 @@ def run_status(run_id: str) -> dict:
 
 @app.post("/api/runs/{run_id}/cancel")
 def cancel(run_id: str) -> dict:
-    """SIGTERM the run's process group. pid <= 0 is refused: killpg(0, ...) hits this server."""
+    """pid <= 0 is refused: killpg(0, ...) would signal this server's own group."""
     run = _row(run_id)
     pid = int(db.pid_of(run_id) or 0)
     if run["status"] != "running" or pid <= 0:
         raise HTTPException(409, "the run is not running")
     try:
         os.killpg(pid, signal.SIGTERM)
-    except ProcessLookupError:   # the worker died on its own: the row is what is stale
+    except ProcessLookupError:
         db.update_run(run_id, status="failed", error="the worker is gone",
                       finished_at=datetime.now(timezone.utc))
         raise HTTPException(409, "the run is not running")
@@ -155,7 +155,7 @@ def run_log(run_id: str) -> str:
     path = RUNS / run_id / "worker.log"
     if not path.is_file():
         return ""
-    with path.open("rb") as f:          # the tail only: a long run's log is not read whole
+    with path.open("rb") as f:
         f.seek(max(0, path.stat().st_size - LOG_TAIL_BYTES))
         data = f.read().decode("utf-8", "replace")
     return _ANSI.sub("", data).replace("\r", "\n")
@@ -178,7 +178,7 @@ async def run_events(run_id: str, request: Request, after: int = 0) -> Streaming
     await asyncio.to_thread(_row, run_id)
     try:
         start = int(request.headers.get("last-event-id") or 0)
-    except ValueError:                      # a header we cannot read: replay from the top
+    except ValueError:
         start = after
 
     async def stream() -> AsyncIterator[str]:
@@ -193,7 +193,7 @@ async def run_events(run_id: str, request: Request, after: int = 0) -> Streaming
                     yield f"id: {sent}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
                 ended = any(e.get("type") in ("run.finished", "run.failed", "run.cancelled")
                             for e in batch)
-                if not ended and not batch:   # fresh status: a cancel ends the stream at once
+                if not ended and not batch:
                     ended = await asyncio.to_thread(reader.status_of, run_id) != "running"
                 if ended:
                     yield "event: end\ndata: {}\n\n"
