@@ -79,8 +79,7 @@ class PipelineConfig:
     # Filled during a run: (agent label, attempt, full rejection text);
     # written to <out_dir>/repair-log.txt.
     repair_log: list = field(default_factory=list)
-    # Optional progress sink (e.g. ``web.db.Store.event``): called with an event type and a
-    # few fields as the run advances. None: nothing is reported.
+    # called as on_event(type, **fields) as the run advances
     on_event: Optional[Callable[..., None]] = None
 
 
@@ -120,27 +119,21 @@ def _feedback_block(feedback: Optional[str], previous: Any = None) -> str:
 
 
 def _streamed(agent: Any, prompt: str, on_delta: Optional[Callable[[str], None]] = None) -> Any:
-    """One agent turn, streamed (KONVEY_STREAM=0 turns it off).
-
-    A plan or a beat document can take longer than the gateway lets a quiet connection live:
-    non-streaming, nothing is sent until the whole reply is ready, and long calls die with a
-    connection error. An agent whose ``run`` takes no ``stream`` kwarg gets the plain path.
-    ``on_delta`` gets the new text at most about three times a second, which is what a live
-    view can render.
+    """One agent turn, streamed (KONVEY_STREAM=0 turns it off): a long reply can outlive a quiet
+    connection. on_delta gets the new text about three times a second.
     """
     if os.environ.get("KONVEY_STREAM", "1") == "0":
-        return agent.run(prompt)  # plain call, priced by track() like the streamed one
+        return agent.run(prompt)
     try:
         stream = agent.run(prompt, stream=True, yield_run_output=True)
     except TypeError as e:  # an agent that cannot stream (tests, plain wrappers)
         inner = e.__traceback__.tb_next if e.__traceback__ else None
-        # only a rejected call signature falls back. a signature TypeError has exactly one frame
-        # (the call itself, plus track()'s wrapper); a TypeError from inside a live call has
-        # more, and must not be re-run: that would pay for the prompt twice
+        # only a rejected signature falls back (one frame, two with track()'s wrapper); a
+        # TypeError from inside a live call must not be re-run: it would pay for the prompt twice
         if inner is not None and inner.tb_next is not None:
             raise
         return agent.run(prompt)
-    if not hasattr(stream, "__iter__"):  # streaming ignored: a plain response
+    if not hasattr(stream, "__iter__"):
         return stream
     from agno.run.agent import RunOutput  # only the streaming path needs it
 
@@ -165,8 +158,8 @@ def _streamed(agent: Any, prompt: str, on_delta: Optional[Callable[[str], None]]
             last = time.monotonic()
     if pending:
         on_delta("".join(pending))
-    # a schema agent's run output carries the parsed model (pydantic or dict), not its text;
-    # without one (the stream died early) the deltas are all there is
+    # a schema agent's run output holds the parsed model, not its text; without one (the stream
+    # died early) the deltas are all there is
     content = final.content if final is not None and final.content is not None else (
         parts[-1] if parts and not isinstance(parts[-1], str) else "".join(parts))
     return SimpleNamespace(content=_json_text(content))

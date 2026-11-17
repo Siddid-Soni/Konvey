@@ -23,8 +23,7 @@ STAGE_W, STAGE_H = 1422, 800
 
 
 def chromium_path() -> str | None:
-    """The configured chromium binary (KONVEY_CHROMIUM, else a distro one), or None when only
-    playwright's own download is there. Read per call, so setting the env later still counts."""
+    """KONVEY_CHROMIUM, else a distro binary; None when only playwright's download is there."""
     path = os.environ.get("KONVEY_CHROMIUM", "/usr/bin/chromium")
     return path if Path(path).exists() else None
 
@@ -33,12 +32,7 @@ _available: bool | None = None
 
 
 def chromium_available() -> bool:
-    """Whether the layout pass can run: a chromium binary, or the one playwright downloaded.
-
-    A browser, not the playwright package: ``--group layout`` alone leaves the download to a
-    separate ``playwright install chromium``, and launching without it fails after a long
-    pipeline. Probed once per process, so asking in every test costs one call.
-    """
+    """A browser, not just the playwright package: `playwright install` is a separate step."""
     global _available
     if _available is None:
         _available = chromium_path() is not None or _playwright_has_chromium()

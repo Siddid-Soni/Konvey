@@ -1,5 +1,3 @@
-"""Konvey web app: FastAPI API (web.server) and one run worker (web.worker)."""
-
 from pathlib import Path
 
 from dotenv import load_dotenv

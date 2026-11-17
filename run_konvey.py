@@ -49,8 +49,7 @@ def parse_args(argv=None) -> argparse.Namespace:
 
 def main(argv=None) -> int:
     args = parse_args(argv)
-    # manimgl parses sys.argv when its packages load (konvey.stage imports them), so our flags
-    # must not be visible to it; restore them after, so main() can run twice in one process.
+    # manimgl parses sys.argv; keep our flags out of it, and restore them so main() can run twice
     saved_argv, sys.argv = sys.argv, sys.argv[:1]
     try:
         return _run(args)

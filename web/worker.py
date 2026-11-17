@@ -1,11 +1,3 @@
-"""One web run: the pipeline, then the render, reporting every step to Postgres.
-
-Started by ``web/server.py`` as ``python -m web.worker <run-id>`` after the run's row exists
-(there it carries the prompt). Events go through ``web.db.Store``; stdout is the worker log.
-A SIGTERM from ``POST /api/runs/{id}/cancel`` (sent to the whole group) ends the run as
-cancelled, at once and without waiting for the scene threads still running.
-"""
-
 from __future__ import annotations
 
 import os
@@ -91,7 +83,6 @@ def _cancelled(run_id: str, store: db.Store | None, started: float) -> None:
 
 
 def _trim(run_id: str) -> None:
-    """The streamed ``agent.delta`` rows only matter while the run is live, so drop them."""
     try:
         db.trim_events(run_id)
     except Exception:  # noqa: BLE001 - housekeeping is not worth a failed run
@@ -99,7 +90,6 @@ def _trim(run_id: str) -> None:
 
 
 def _render(run_dir: Path, store: db.Store) -> None:
-    """Render the accepted beats scene by scene, then join them, reporting each one."""
     from concurrent.futures import ThreadPoolExecutor
 
     try:

@@ -90,12 +90,11 @@ def test_the_chromium_binary_comes_from_the_env_first(monkeypatch, tmp_path):
 
 
 def test_a_configured_binary_that_is_not_there_falls_back_to_playwright(monkeypatch):
-    """The package alone is not a browser: `playwright install chromium` is a separate step."""
     monkeypatch.setenv("KONVEY_CHROMIUM", "/nonexistent/chromium")
     assert chromium_path() is None
     monkeypatch.setattr(layout, "_available", None)
     monkeypatch.setattr(layout, "_playwright_has_chromium", lambda: False)
-    assert not chromium_available()          # what konvey.mcp.server._stack reports as missing
+    assert not chromium_available()
 
 
 @pytest.mark.skipif(not HAS_CHROMIUM, reason="needs a chromium binary (KONVEY_CHROMIUM / playwright install)")

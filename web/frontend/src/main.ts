@@ -1,11 +1,5 @@
 import "./style.css";
 
-// Konvey: write a topic, then watch the video get made.
-//
-// The page renders one event stream (SSE over Postgres, see web/server.py). Each event is
-// turned into three things: a stage on the track, a line of activity, and the state of a scene.
-// Raw model output and tool calls never appear on the main page; they live in the drawer.
-
 type Run = {
   id: string; prompt: string; status: string; created: number; model: string;
   usd: number | null; title: string | null; video: string | null; error: string | null;

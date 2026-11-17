@@ -1,9 +1,3 @@
--- Progress storage for the Konvey web app: one row per run, one row per step.
---
--- The media (beats HTML, scene .py, mp4s) stays on disk in <run-dir>; these tables own the
--- run's state and its event stream, so the API can be stateless and a page can replay or
--- reconnect at any point.
-
 create table if not exists runs (
     id          text primary key,
     prompt      text not null,

@@ -1,15 +1,3 @@
-"""Postgres store for the web app: runs and their event stream.
-
-The pipeline knows nothing about this. It is handed ``Store.event`` as
-``PipelineConfig.on_event`` and calls it with an event type and a few fields; this module
-writes the row. Media stay on disk (the run directory); these tables own the state, so the API
-can be restarted, a browser can replay any run from ``seq = 1``, and a dropped connection
-reconnects with ``seq > last``.
-
-    docker compose up -d postgres
-    uv run --group web python -m web.db --check     # connect, create the tables, list runs
-"""
-
 from __future__ import annotations
 
 import json
@@ -38,15 +26,11 @@ def ensure_schema(conn) -> None:
 
 
 def _discard(conn) -> None:
-    """Close a connection we are abandoning; it may already be broken, so nothing may escape."""
     try:
         if conn is not None:
             conn.close()
     except Exception:  # noqa: BLE001 - the socket is gone either way
         pass
-
-
-# --- reads (the API) ---------------------------------------------------------
 
 
 def list_runs(limit: int = 50) -> list[dict]:
@@ -104,12 +88,7 @@ def _jsonable(row: dict) -> dict:
 
 
 class Reader:
-    """One SSE stream's polls: a single connection, reused until the stream ends.
-
-    The stream asks for new events four times a second, so a connection per poll both blocks
-    the event loop and leaves Postgres with a socket per open browser. Queries run in worker
-    threads (``asyncio.to_thread``), hence the lock around connect, query and reconnect.
-    """
+    """One SSE stream's polls: one connection, reused and replaced when it dies."""
 
     def __init__(self) -> None:
         self.conn = None
@@ -141,9 +120,6 @@ class Reader:
             self.conn = None
 
 
-# --- writes (the worker) -----------------------------------------------------
-
-
 def create_run(run_id: str, prompt: str, model: str = "", pid: int | None = None) -> bool:
     """True when this call inserted the row, False when the id was already taken."""
     with connect() as conn:
@@ -164,22 +140,13 @@ def update_run(run_id: str, **fields: Any) -> None:
 
 
 def trim_events(run_id: str) -> None:
-    """A run is over: drop its per-token deltas, keep the milestones a page replays."""
     with connect() as conn:
         conn.execute("delete from events where run_id = %s and type = %s", (run_id, "agent.delta"))
 
 
 class Store:
-    """One run's event sink: owns a connection and the per-run sequence number.
-
-    Called from the pipeline's thread pool (three scenes at once), so the insert is
-    serialised; a run only ever has one writer, which is what keeps ``seq`` monotonic.
-
-    Reporting is best-effort: a run must not die because the database blinked, so a failed
-    insert is a stderr line (rate-limited, a dead database would otherwise print every delta)
-    and the connection is dropped for the next event to re-open. The sequence number still
-    advances, so a lost event leaves a gap rather than a duplicate ``seq``.
-    """
+    """One run's event sink. Called from the pipeline's thread pool, so inserts are serialised;
+    a failed insert is a stderr line, never a dead run."""
 
     def __init__(self, run_id: str) -> None:
         self.run_id = run_id
@@ -187,7 +154,6 @@ class Store:
         # reentrant: the SIGTERM handler runs in the main thread, which may itself be inside
         # ``event`` (a cancel that lands mid-insert must not wait forever on its own lock)
         self.lock = threading.RLock()
-        # per run, from 1, with exactly one writer: create_run only lets one caller win the id
         self.seq = 0
         self.t0 = time.monotonic()
         self.warned = 0.0
@@ -209,7 +175,7 @@ class Store:
 
     def _warn(self, err: Exception) -> None:
         now = time.monotonic()
-        if now - self.warned > 10:      # one line per 10s: a dead database writes 3 deltas a second
+        if now - self.warned > 10:      # a dead database would otherwise print every delta
             self.warned = now
             print(f"[web.db] event store unavailable: {type(err).__name__}: {err}"
                   f" (run {self.run_id})", file=sys.stderr, flush=True)

@@ -1,10 +1,3 @@
-"""Streamed agent turns (`konvey.pipeline._streamed`) and what they cost (`konvey.cost.track`).
-
-A streamed call's deltas carry no token metrics; only the run output ending the stream does.
-These tests pin that cost, the fallback for an agent that cannot stream, and the progress
-events `run_pipeline` reports through `PipelineConfig.on_event`.
-"""
-
 from __future__ import annotations
 
 import json
@@ -28,12 +21,10 @@ def usage(inp=1000, out=200):
 
 
 def delta(text):
-    """A streamed chunk the way agno sends it: content only, no metrics."""
     return type("Ev", (), {"content": text})()
 
 
 def run_output(content=None):
-    """The RunOutput that ends a stream: the whole run, with its messages and tokens."""
     return RunOutput(content=content, messages=[SimpleNamespace(role="assistant", metrics=usage())],
                      metrics=usage())
 
@@ -49,8 +40,6 @@ class Tiny(BaseModel):
 
 
 class StreamingAgent:
-    """Streams only: a non-streaming call is a bug (it would report no tokens at all)."""
-
     model = SimpleNamespace(id=MODEL)
 
     def __init__(self, final="Alpha beta"):
@@ -108,7 +97,6 @@ def test_text_deltas_are_concatenated_and_not_duplicated():
     seen = []
     assert _streamed(TextAgent("Alpha beta"), "go", seen.append).content == "Alpha beta"
     assert "".join(seen) == "Alpha beta"              # the live view saw the text
-    # a stream that ends without content still has its deltas
     assert _streamed(TextAgent(None), "go").content == "Alpha beta"
 
 

@@ -138,8 +138,7 @@ def track(agent: Any, log: CostLog, label: str) -> Any:
 
     def tracked(*a, **k):
         resp = run(*a, **k)
-        # a lazy stream is relayed so the run output ending it can be priced; anything else (a
-        # response, a parsed model, a list) is priced here and returned unchanged
+        # only a lazy stream is relayed: a parsed model is iterable too, and must pass through
         if not isinstance(resp, Iterator):
             record(resp)
             return resp

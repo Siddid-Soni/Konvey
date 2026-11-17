@@ -1,9 +1,3 @@
-"""The web API without a database: every `web.db` call a route makes is faked.
-
-`TestClient(app)` outside a `with` block does not run the lifespan, so nothing here connects
-to Postgres (the compose initdb stays a deployment concern).
-"""
-
 from __future__ import annotations
 
 import signal
@@ -41,7 +35,6 @@ def client() -> TestClient:
 
 
 def nothing_going(monkeypatch, live=0):
-    """`list_runs`, which the run claim reads to cap how many are live."""
     monkeypatch.setattr(server.db, "list_runs",
                         lambda limit=50: [{**row(), "id": f"{RUN}-{i}"} for i in range(live)])
 
@@ -193,7 +186,6 @@ def test_run_files_are_confined_to_the_run_directory(monkeypatch):
 
 
 def test_beats_html_is_served_as_text_not_as_a_page(monkeypatch):
-    """Model-written HTML on the app's origin would run against the API."""
     monkeypatch.setattr(server.db, "get_run", lambda run_id: {**row(), "id": run_id})
     inside = server.RUNS / RUN
     inside.mkdir(parents=True)
