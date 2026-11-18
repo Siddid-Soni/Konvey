@@ -49,6 +49,14 @@ def parse_args(argv=None) -> argparse.Namespace:
 
 def main(argv=None) -> int:
     args = parse_args(argv)
+    saved_argv, sys.argv = sys.argv, sys.argv[:1]
+    try:
+        return _run(args)
+    finally:
+        sys.argv = saved_argv
+
+
+def _run(args: argparse.Namespace) -> int:
     from konvey.stage.theme import get_theme
 
     try:

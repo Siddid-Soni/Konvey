@@ -6,9 +6,10 @@ from pathlib import Path
 import pytest
 
 from konvey.stage.check import _renumber, check_runtime, continuity_note
+from konvey.stage.layout import chromium_available
 
 HAS_MANIM = importlib.util.find_spec("manimlib") is not None
-HAS_CHROMIUM = importlib.util.find_spec("playwright") is not None and Path("/usr/bin/chromium").exists()
+HAS_CHROMIUM = chromium_available()
 
 S1 = """<beats>
 <beat vo="A bowl." style="padding: 0.5u 0.6u; gap: 0.2u">

@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Konvey</title>
+  </head>
+  <body>
+    <div id="app" data-dock="right">
+      <aside id="side" class="side">
+        <div class="side-body">
+          <div class="brand">Konvey</div>
+          <button class="new" type="button" data-act="new">New video</button>
+          <nav id="runs" class="runs" aria-label="Videos"></nav>
+        </div>
+        <span class="edge side-grip" data-resize="side" role="separator" aria-orientation="vertical"
+              aria-label="Resize sidebar" tabindex="0"></span>
+      </aside>
+
+      <main id="main">
+        <section id="compose" class="page" hidden>
+          <h1>What should the video explain?</h1>
+          <form id="ask">
+            <label class="sr" for="prompt">Topic</label>
+            <textarea id="prompt" rows="3" placeholder="A question or a topic, in plain words"></textarea>
+            <div class="ask-foot">
+              <span class="quiet">Usually 3 to 4 minutes.</span>
+              <button id="go" class="primary" type="submit">Make video</button>
+            </div>
+            <p id="err" class="err" hidden></p>
+          </form>
+          <div class="examples">
+            <span class="quiet">Try</span>
+            <div id="examples"></div>
+          </div>
+        </section>
+
+        <section id="run" class="page" hidden>
+          <header class="head">
+            <div class="head-text">
+              <h1 id="title"></h1>
+              <p id="status" class="status" role="status"></p>
+              <p id="meta" class="meta mono"></p>
+            </div>
+            <div id="actions" class="actions"></div>
+          </header>
+
+          <ol id="stages" class="stages" aria-label="Progress"></ol>
+
+          <div id="video" class="video" hidden></div>
+
+          <section class="block">
+            <h2>Scenes</h2>
+            <ul id="scenes" class="scenes"></ul>
+          </section>
+
+          <section class="block">
+            <div class="block-head">
+              <h2>Activity</h2>
+              <button class="link" type="button" data-act="logs-open">Full log</button>
+            </div>
+            <ol id="items" class="items"></ol>
+          </section>
+        </section>
+      </main>
+
+      <section id="logs" class="logs" aria-label="Full log" hidden>
+        <header class="logs-head">
+          <div class="logs-title">
+            <h2>Full log</h2>
+            <span id="logs-count" class="quiet mono"></span>
+          </div>
+          <div class="logs-tools">
+            <div class="seg" role="tablist">
+              <button class="seg-btn on" type="button" role="tab" data-logtab="events" aria-selected="true">Events</button>
+              <button class="seg-btn" type="button" role="tab" data-logtab="worker" aria-selected="false">Worker output</button>
+            </div>
+            <input id="logs-q" type="search" placeholder="Filter" aria-label="Filter the log" />
+            <label class="quiet check"><input id="logs-warn" type="checkbox" /> Warnings and errors</label>
+            <button class="btn" type="button" data-act="logs-close">Close</button>
+          </div>
+        </header>
+        <div id="logs-body" class="logs-body"></div>
+      </section>
+
+      <aside id="drawer" class="drawer" aria-label="Details" hidden>
+        <div class="dhead">
+          <div class="grip-move" data-move title="Drag to move this panel left or right">Details</div>
+          <button class="btn" type="button" data-act="details-hide">Hide</button>
+        </div>
+        <nav id="tabs" class="tabs" aria-label="Details tabs"></nav>
+        <div id="drawer-body" class="drawer-body"></div>
+        <span class="edge" data-resize="details" role="separator" aria-orientation="vertical"
+              aria-label="Resize details" tabindex="0"></span>
+      </aside>
+
+      <div id="dock-hint" class="dock-hint" hidden></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

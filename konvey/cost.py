@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import threading
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -129,13 +130,27 @@ def track(agent: Any, log: CostLog, label: str) -> Any:
     run = agent.run
     model = getattr(getattr(agent, "model", None), "id", "") or "unknown"
 
-    def tracked(*a, **k):
-        resp = run(*a, **k)
+    def record(resp: Any) -> None:
         try:
             log.record(label, model, resp)
         except Exception:  # noqa: BLE001 - accounting must never break a run
             pass
-        return resp
+
+    def tracked(*a, **k):
+        resp = run(*a, **k)
+        # only a lazy stream is relayed: a parsed model is iterable too, and must pass through
+        if not isinstance(resp, Iterator):
+            record(resp)
+            return resp
+        def relay():
+            last = None
+            for item in resp:
+                if getattr(item, "messages", None) or getattr(item, "metrics", None) is not None:
+                    last = item
+                yield item
+            if last is not None:
+                record(last)
+        return relay()
 
     agent.run = tracked
     agent._cost_tracked = True

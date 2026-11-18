@@ -25,9 +25,16 @@ konvey-mcp = "konvey.mcp.server:main"
 dev = [
     "pytest>=9.1.1",
     "mcp>=1.2",
+    "fastapi>=0.115",   # tests/test_web.py drives the API through TestClient
+    "httpx>=0.28",
 ]
 mcp = [
     "mcp>=1.2",
+]
+web = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "psycopg[binary]>=3.2",
 ]
 layout = [
     "playwright>=1.64.0",

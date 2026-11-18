@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from konvey.schemas import ObjectSpec
+from konvey.stage.layout import chromium_available
 from konvey.stage.parse import BeatError, parse_beats, prepare_beats
 from konvey.validators import _object_problems
 
@@ -184,7 +185,7 @@ def test_grid_smaller_size_makes_shorter_cells_and_chips_fit():
         assert chip.get_width() < small.cells[k][0].get_width() * 0.5
 
 
-HAS_CHROMIUM = importlib.util.find_spec("playwright") is not None and __import__("pathlib").Path("/usr/bin/chromium").exists()
+HAS_CHROMIUM = chromium_available()
 
 
 @pytest.mark.skipif(not (HAS_MANIM and HAS_CHROMIUM), reason="needs manimgl + Chromium")
